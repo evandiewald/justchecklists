@@ -1,7 +1,8 @@
 {
-  "name": "amplify-vite-react-template",
+  "name": "justchecklists",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "A simple and beautiful checklist app with a legal pad design, built with React and AWS Amplify.",
   "type": "module",
   "scripts": {
     "dev": "vite",

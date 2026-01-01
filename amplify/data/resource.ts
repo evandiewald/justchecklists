@@ -1,17 +1,66 @@
 import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
 
-/*== STEP 1 ===============================================================
-The section below creates a Todo database table with a "content" field. Try
-adding a new "isDone" field as a boolean. The authorization rule below
-specifies that any user authenticated via an API key can "create", "read",
-"update", and "delete" any "Todo" records.
-=========================================================================*/
 const schema = a.schema({
-  Todo: a
+  Checklist: a
     .model({
-      content: a.string(),
+      title: a.string().required(),
+      description: a.string(),
+      isPublic: a.boolean().default(false),
+      createdAt: a.datetime(),
+      updatedAt: a.datetime(),
+      author: a.string().required(), // User ID
+      viewCount: a.integer().default(0),
+      sections: a.hasMany('ChecklistSection', 'checklistId'),
+      userProgress: a.hasMany('UserProgress', 'checklistId'),
     })
-    .authorization((allow) => [allow.publicApiKey()]),
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read']),
+      allow.publicApiKey().to(['read']),
+    ]),
+
+  ChecklistSection: a
+    .model({
+      title: a.string().required(),
+      order: a.integer().required(),
+      checklistId: a.id().required(),
+      checklist: a.belongsTo('Checklist', 'checklistId'),
+      items: a.hasMany('ChecklistItem', 'sectionId'),
+    })
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read']),
+      allow.publicApiKey().to(['read']),
+    ]),
+
+  ChecklistItem: a
+    .model({
+      title: a.string().required(),
+      description: a.string(),
+      order: a.integer().required(),
+      sectionId: a.id().required(),
+      section: a.belongsTo('ChecklistSection', 'sectionId'),
+      userProgress: a.hasMany('UserProgress', 'itemId'),
+    })
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read']),
+      allow.publicApiKey().to(['read']),
+    ]),
+
+  UserProgress: a
+    .model({
+      userId: a.string().required(),
+      checklistId: a.id().required(),
+      itemId: a.id().required(),
+      completed: a.boolean().default(false),
+      completedAt: a.datetime(),
+      checklist: a.belongsTo('Checklist', 'checklistId'),
+      item: a.belongsTo('ChecklistItem', 'itemId'),
+    })
+    .authorization((allow) => [
+      allow.owner(),
+    ]),
 });
 
 export type Schema = ClientSchema<typeof schema>;
@@ -19,8 +68,7 @@ export type Schema = ClientSchema<typeof schema>;
 export const data = defineData({
   schema,
   authorizationModes: {
-    defaultAuthorizationMode: "apiKey",
-    // API Key is used for a.allow.public() rules
+    defaultAuthorizationMode: "userPool",
     apiKeyAuthorizationMode: {
       expiresInDays: 30,
     },
