@@ -17,7 +17,6 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   checklistId,
   onBack,
   onEdit,
-  onClone,
   user,
 }) => {
   const [checklist, setChecklist] = useState<LocalChecklist | null>(null);

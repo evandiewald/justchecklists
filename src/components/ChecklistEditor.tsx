@@ -250,7 +250,7 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
     return newItem.id;
   };
 
-  const handleItemTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, sectionId: string, itemId: string) => {
+  const handleItemTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, sectionId: string) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       addItem(sectionId, true);
@@ -260,7 +260,7 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
     }
   };
 
-  const handleItemDescriptionKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, sectionId: string, itemId: string) => {
+  const handleItemDescriptionKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, sectionId: string) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       addItem(sectionId, true);
@@ -350,7 +350,7 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
             </button>
           </div>
 
-          {sections.map((section, sectionIndex) => (
+          {sections.map((section) => (
             <div key={section.id} className="section-editor">
               <div className="section-header">
                 <input
@@ -376,7 +376,7 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
                         type="text"
                         value={item.title}
                         onChange={(e) => updateItem(section.id, item.id, { title: e.target.value })}
-                        onKeyDown={(e) => handleItemTitleKeyDown(e, section.id, item.id)}
+                        onKeyDown={(e) => handleItemTitleKeyDown(e, section.id)}
                         placeholder="Item title"
                         className="item-title-input"
                         data-item-id={item.id}
@@ -389,7 +389,7 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
                           e.target.style.height = 'auto';
                           e.target.style.height = e.target.scrollHeight + 'px';
                         }}
-                        onKeyDown={(e) => handleItemDescriptionKeyDown(e, section.id, item.id)}
+                        onKeyDown={(e) => handleItemDescriptionKeyDown(e, section.id)}
                         placeholder="Description (optional)"
                         className="item-description-input"
                       />
