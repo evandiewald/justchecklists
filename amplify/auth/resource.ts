@@ -19,10 +19,12 @@ export const auth = defineAuth({
       callbackUrls: [
         'http://localhost:5173/',
         'https://localhost:5173/',
+        'https://justchecklists.io/'
       ],
       logoutUrls: [
         'http://localhost:5173/',
         'https://localhost:5173/',
+        'https://justchecklists.io/'
       ],
     },
   },

@@ -46,7 +46,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           const sectionsWithItems = await Promise.all(
             (sectionsResult.data || []).map(async (section) => {
               const itemsResult = await client.models.ChecklistItem.list({
-                filter: { sectionId: { eq: section.id } }
+                filter: { sectionId: { eq: section.id } },
+                limit: 1000,
               });
 
               return {

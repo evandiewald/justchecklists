@@ -49,6 +49,7 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
               const itemsResult = await client.models.ChecklistItem.list({
                 filter: { sectionId: { eq: section.id } },
                 authMode: user ? 'userPool' : 'apiKey',
+                limit: 1000,
               });
 
               return {
