@@ -15,10 +15,7 @@ if (process.env.AWS_BRANCH === 'main') {
   cfnDomain.addDomain('customDomain', {
   customDomain: {
     domainName: 'auth.justchecklists.io',
-    certificate: Certificate.fromCertificateArn(
-      cfnDomain, 'certificate',
-      'arn:aws:acm:us-east-1:668146110194:certificate/c2d8a762-a484-4059-843d-bc5d8400c7d1'
-    )
+    certificate: Certificate.fromCertificateArn(cfnDomain, 'certificate', process.env.CERTIFICATE_ARN!)
   }
 });
 }

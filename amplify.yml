@@ -6,8 +6,13 @@ backend:
         - npm ci --cache .npm --prefer-offline
         - npx ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID
         - |
-          jq '.auth.oauth.domain = "auth.justchecklists.io"' amplify_outputs.json > amplify_outputs.tmp.json \
-          && mv amplify_outputs.tmp.json amplify_outputs.json
+            node -e "
+              const fs = require('fs');
+              const p = 'amplify_outputs.json';
+              const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+              j.auth.oauth.domain = 'auth.justchecklists.io';
+              fs.writeFileSync(p, JSON.stringify(j, null, 2));
+            "
         - cat amplify_outputs.json
 frontend:
   phases:
