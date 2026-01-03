@@ -10,7 +10,9 @@ const backend = defineBackend({
 
 const cfnDomain = backend.auth.resources.userPool
 
-cfnDomain.addDomain('customDomain', {
+// don't add a custom domain for sandbox
+if (process.env.AWS_APP_ID != undefined) {
+  cfnDomain.addDomain('customDomain', {
   customDomain: {
     domainName: 'auth.justchecklists.io',
     certificate: Certificate.fromCertificateArn(
@@ -19,3 +21,4 @@ cfnDomain.addDomain('customDomain', {
     )
   }
 });
+}
