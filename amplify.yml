@@ -13,7 +13,6 @@ backend:
               j.auth.oauth.domain = 'auth.justchecklists.io';
               fs.writeFileSync(p, JSON.stringify(j, null, 2));
             "
-        - cat amplify_outputs.json
 frontend:
   phases:
     build:

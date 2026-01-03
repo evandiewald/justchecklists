@@ -3,7 +3,6 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import { ChecklistList } from './ChecklistList';
 import { ChecklistView } from './ChecklistView';
-import { ChecklistEditor } from './ChecklistEditor';
 import { LocalStorageManager } from '../utils/localStorage';
 
 const client = generateClient<Schema>();
@@ -13,7 +12,7 @@ interface ChecklistAppProps {
   signOut: (() => void) | null | undefined;
 }
 
-type View = 'home' | 'create' | 'edit' | 'view';
+type View = 'home' | 'view';
 
 export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => {
   const [currentView, setCurrentView] = useState<View>('home');
@@ -69,14 +68,54 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
     setLoading(false);
   };
 
-  const handleCreateChecklist = () => {
-    setSelectedChecklistId(null);
-    setCurrentView('create');
-  };
+  const handleCreateChecklist = async () => {
+    const newChecklistId = LocalStorageManager.generateId();
+    const newSectionId = LocalStorageManager.generateId();
 
-  const handleEditChecklist = (id: string) => {
-    setSelectedChecklistId(id);
-    setCurrentView('edit');
+    if (user) {
+      // Create blank checklist in Amplify with client-generated IDs
+      try {
+        await client.models.Checklist.create({
+          id: newChecklistId,
+          title: 'New Checklist',
+          description: '',
+          author: user.username || user.userId,
+          useCount: 0
+        });
+
+        // Create initial section
+        await client.models.ChecklistSection.create({
+          id: newSectionId,
+          checklistId: newChecklistId,
+          title: 'Section 1',
+          order: 0
+        });
+
+        setSelectedChecklistId(newChecklistId);
+        setCurrentView('view'); // Opens in ChecklistView
+      } catch (error) {
+        console.error('Error creating checklist:', error);
+      }
+    } else {
+      // localStorage version
+      const blankChecklist = {
+        id: newChecklistId,
+        title: 'New Checklist',
+        description: '',
+        isPublic: false,
+        createdAt: new Date().toISOString(),
+        sections: [{
+          id: newSectionId,
+          title: 'Section 1',
+          order: 0,
+          items: []
+        }],
+        progress: {}
+      };
+      LocalStorageManager.saveChecklist(blankChecklist);
+      setSelectedChecklistId(newChecklistId);
+      setCurrentView('view');
+    }
   };
 
   const handleViewChecklist = (id: string) => {
@@ -128,19 +167,8 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
         return (
           <ChecklistList
             checklists={checklists}
-            onEdit={handleEditChecklist}
             onView={handleViewChecklist}
             onCreate={handleCreateChecklist}
-            user={user}
-          />
-        );
-      case 'create':
-      case 'edit':
-        return (
-          <ChecklistEditor
-            checklistId={selectedChecklistId}
-            onSave={handleBackToHome}
-            onCancel={handleBackToHome}
             user={user}
           />
         );
@@ -149,7 +177,6 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
           <ChecklistView
             checklistId={selectedChecklistId!}
             onBack={handleBackToHome}
-            onEdit={handleEditChecklist}
             user={user}
           />
         );

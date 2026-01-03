@@ -7,7 +7,6 @@ const client = generateClient<Schema>();
 
 interface ChecklistListProps {
   checklists: any[];
-  onEdit: (id: string) => void;
   onView: (id: string) => void;
   onCreate: () => void;
   user: any;
@@ -15,7 +14,6 @@ interface ChecklistListProps {
 
 export const ChecklistList: React.FC<ChecklistListProps> = ({
   checklists,
-  onEdit,
   onView,
   onCreate,
   user,
@@ -222,17 +220,6 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
                   )}
                 </h3>
                 <div className="card-actions">
-                  {isOwner(checklist) && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onEdit(checklist.id);
-                      }}
-                      className="edit-button"
-                    >
-                      <span className="material-symbols-outlined">edit</span>
-                    </button>
-                  )}
                   {isOwner(checklist) && (
                     <button
                       onClick={(e) => handleDelete(checklist.id, e)}
