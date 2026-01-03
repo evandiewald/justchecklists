@@ -25,6 +25,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   const [showCelebration, setShowCelebration] = useState(false);
   const [hideCompleted, setHideCompleted] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showShareDialog, setShowShareDialog] = useState(false);
 
   useEffect(() => {
     loadChecklist();
@@ -60,11 +61,19 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                     id: item.id,
                     title: item.title,
                     description: item.description || '',
-                    order: item.order
+                    order: item.order,
+                    completed: item.completed || false
                   }))
               };
             })
           );
+
+          // Check if current user is the owner
+          const author = result.data.author;
+          const isOwner = author === user.userId ||
+                         author === user.username ||
+                         author === user.signInDetails?.loginId ||
+                         author === (user.attributes && user.attributes.email);
 
           const checklistData: any = {
             id: result.data.id,
@@ -79,19 +88,13 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
           setChecklist(checklistData);
 
-          // Load user progress
-          const progressResult = await client.models.UserProgress.list({
-            filter: {
-              checklistId: { eq: checklistId },
-              userId: { eq: user.username || user.userId }
-            }
-          });
-
+          // Build progress from item completed fields
+          // If viewing a template (not owner), show all items as uncompleted
           const userProgress: Record<string, boolean> = {};
-          (progressResult.data || []).forEach(p => {
-            if (p.itemId && p.completed !== null && p.completed !== undefined) {
-              userProgress[p.itemId] = p.completed;
-            }
+          sectionsWithItems.forEach(section => {
+            section.items.forEach(item => {
+              userProgress[item.id] = isOwner ? (item.completed || false) : false;
+            });
           });
 
           setProgress(userProgress);
@@ -134,36 +137,14 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     }
 
     if (user) {
-      // Update progress in Amplify
+      // Update item's completed field in Amplify
       try {
-        // Check if progress entry exists
-        const existingProgress = await client.models.UserProgress.list({
-          filter: {
-            checklistId: { eq: checklistId },
-            itemId: { eq: itemId },
-            userId: { eq: user.username || user.userId }
-          }
+        await client.models.ChecklistItem.update({
+          id: itemId,
+          completed: newCompleted
         });
-
-        if (existingProgress.data && existingProgress.data.length > 0) {
-          // Update existing progress
-          await client.models.UserProgress.update({
-            id: existingProgress.data[0].id,
-            completed: newCompleted,
-            completedAt: newCompleted ? new Date().toISOString() : null
-          });
-        } else {
-          // Create new progress entry
-          await client.models.UserProgress.create({
-            userId: user.username || user.userId,
-            checklistId,
-            itemId,
-            completed: newCompleted,
-            completedAt: newCompleted ? new Date().toISOString() : null
-          });
-        }
       } catch (error) {
-        console.error('Error updating progress:', error);
+        console.error('Error updating item:', error);
       }
     } else {
       // Update progress in local storage
@@ -207,25 +188,24 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           filter: { checklistId: { eq: checklistId } }
         });
 
-        for (const section of sectionsResult.data || []) {
-          const itemsResult = await client.models.ChecklistItem.list({
-            filter: { sectionId: { eq: section.id } }
-          });
+        // Delete all sections and items in parallel
+        await Promise.all(
+          (sectionsResult.data || []).map(async (section) => {
+            const itemsResult = await client.models.ChecklistItem.list({
+              filter: { sectionId: { eq: section.id } }
+            });
 
-          for (const item of itemsResult.data || []) {
-            await client.models.ChecklistItem.delete({ id: item.id });
-          }
+            // Delete all items in this section in parallel
+            await Promise.all(
+              (itemsResult.data || []).map(item =>
+                client.models.ChecklistItem.delete({ id: item.id })
+              )
+            );
 
-          await client.models.ChecklistSection.delete({ id: section.id });
-        }
-
-        const progressResult = await client.models.UserProgress.list({
-          filter: { checklistId: { eq: checklistId } }
-        });
-
-        for (const progress of progressResult.data || []) {
-          await client.models.UserProgress.delete({ id: progress.id });
-        }
+            // Then delete the section
+            await client.models.ChecklistSection.delete({ id: section.id });
+          })
+        );
 
         await client.models.Checklist.delete({ id: checklistId });
       } else {
@@ -262,6 +242,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     if (!checklist) return;
 
     try {
+      // Clone checklist with all items set to uncompleted
       const clonedChecklist: LocalChecklist = {
         ...checklist,
         id: LocalStorageManager.generateId(),
@@ -269,6 +250,13 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         isPublic: false, // Clones are private by default
         createdAt: new Date().toISOString(),
         progress: {},
+        sections: checklist.sections.map(section => ({
+          ...section,
+          items: section.items.map(item => ({
+            ...item,
+            completed: false, // Reset all items to uncompleted
+          }))
+        }))
       };
 
       if (user) {
@@ -285,7 +273,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           throw new Error('Failed to clone checklist');
         }
 
-        // Clone sections and items
+        // Clone sections and items (batched for performance)
         for (const section of checklist.sections) {
           const newSection = await client.models.ChecklistSection.create({
             checklistId: newChecklist.data.id,
@@ -294,28 +282,59 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           });
 
           if (newSection.data) {
-            for (const item of section.items) {
-              await client.models.ChecklistItem.create({
-                sectionId: newSection.data.id,
-                title: item.title,
-                description: item.description || '',
-                order: item.order,
-              });
+            const sectionId = newSection.data.id;
+            if (section.items.length > 0) {
+              // Create all items in parallel instead of sequentially
+              // Always set completed to false when copying
+              await Promise.all(
+                section.items.map(item =>
+                  client.models.ChecklistItem.create({
+                    sectionId: sectionId,
+                    title: item.title,
+                    description: item.description || '',
+                    order: item.order,
+                    completed: false,
+                  })
+                )
+              );
             }
           }
         }
 
-        alert('Checklist cloned successfully!');
+        alert('Added to your lists!');
         onBack();
       } else {
         // Save to local storage
         LocalStorageManager.saveChecklist(clonedChecklist);
-        alert('Checklist cloned successfully!');
+        alert('Added to your lists!');
         onBack();
       }
     } catch (error) {
-      console.error('Error cloning checklist:', error);
-      alert('Error cloning checklist. Please try again.');
+      console.error('Error copying checklist:', error);
+      alert('Error copying checklist. Please try again.');
+    }
+  };
+
+  const handleShare = async (shouldShare: boolean) => {
+    if (!checklist || !user) return;
+
+    try {
+      await client.models.Checklist.update({
+        id: checklistId,
+        isPublic: shouldShare,
+      });
+
+      // Update local state
+      setChecklist({
+        ...checklist,
+        isPublic: shouldShare,
+      });
+
+      setShowShareDialog(false);
+      alert(shouldShare ? 'List is now shared as a public template!' : 'List is no longer shared');
+    } catch (error) {
+      console.error('Error updating share status:', error);
+      alert('Error updating share status. Please try again.');
     }
   };
 
@@ -353,6 +372,9 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           <div className="view-actions">
             {isOwner() ? (
               <>
+                <button onClick={() => setShowShareDialog(true)} className="share-button" title="Share as template">
+                  🔗
+                </button>
                 <button onClick={() => onEdit(checklistId)} className="edit-button" title="Edit">
                   ✏️
                 </button>
@@ -361,8 +383,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 </button>
               </>
             ) : (
-              <button onClick={handleClone} className="clone-button" title="Clone this checklist">
-                📋
+              <button onClick={handleClone} className="clone-button" title="Copy this checklist to your lists">
+                Use this List
               </button>
             )}
           </div>
@@ -370,12 +392,14 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         <div className="checklist-info">
           <h1>
             {checklist.title}
-            <span
-              className="privacy-icon"
-              title={checklist.isPublic ? 'Public' : 'Private'}
-            >
-              {checklist.isPublic ? '🌍' : '🔒'}
-            </span>
+            {checklist.isPublic && (
+              <span
+                className="privacy-icon"
+                title="Shared as public template"
+              >
+                🌍
+              </span>
+            )}
           </h1>
           {checklist.description && (
             <p className="checklist-description">{checklist.description}</p>
@@ -434,8 +458,9 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
               {visibleItems.map((item) => (
                 <div
                   key={item.id}
-                  className={`checklist-item ${progress[item.id] ? 'completed' : ''}`}
-                  onClick={() => toggleItem(item.id)}
+                  className={`checklist-item ${progress[item.id] ? 'completed' : ''} ${!isOwner() ? 'disabled' : ''}`}
+                  onClick={() => isOwner() && toggleItem(item.id)}
+                  style={{ cursor: isOwner() ? 'pointer' : 'default' }}
                 >
                   <span className="item-checkbox">
                     {progress[item.id] ? '☑' : '☐'}
@@ -453,6 +478,41 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         );
         })}
       </div>
+
+      {showShareDialog && checklist && (
+        <div className="share-dialog-overlay" onClick={() => setShowShareDialog(false)}>
+          <div className="share-dialog-content" onClick={(e) => e.stopPropagation()}>
+            <button className="close-dialog" onClick={() => setShowShareDialog(false)}>✕</button>
+            <h2>Share as Template</h2>
+            {checklist.isPublic ? (
+              <>
+                <p>This list is currently shared as a public template. Others can view and copy it.</p>
+                <div className="dialog-actions">
+                  <button onClick={() => handleShare(false)} className="unshare-button">
+                    Remove from Shared Templates
+                  </button>
+                  <button onClick={() => setShowShareDialog(false)} className="cancel-dialog-button">
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p>Do you want to share this list as a public template?</p>
+                <p className="dialog-note">Others will be able to view and copy it to their own lists, but they won't see your progress.</p>
+                <div className="dialog-actions">
+                  <button onClick={() => handleShare(true)} className="share-confirm-button">
+                    Share as Template
+                  </button>
+                  <button onClick={() => setShowShareDialog(false)} className="cancel-dialog-button">
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {showCelebration && percentage === 100 && (
         <div className="completion-celebration" onClick={() => setShowCelebration(false)}>

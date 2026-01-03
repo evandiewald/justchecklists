@@ -11,7 +11,6 @@ const schema = a.schema({
       author: a.string().required(), // User ID
       viewCount: a.integer().default(0),
       sections: a.hasMany('ChecklistSection', 'checklistId'),
-      userProgress: a.hasMany('UserProgress', 'checklistId'),
     })
     .authorization((allow) => [
       allow.owner(),
@@ -38,28 +37,14 @@ const schema = a.schema({
       title: a.string().required(),
       description: a.string(),
       order: a.integer().required(),
+      completed: a.boolean().default(false),
       sectionId: a.id().required(),
       section: a.belongsTo('ChecklistSection', 'sectionId'),
-      userProgress: a.hasMany('UserProgress', 'itemId'),
     })
     .authorization((allow) => [
       allow.owner(),
       allow.authenticated().to(['read']),
       allow.publicApiKey().to(['read']),
-    ]),
-
-  UserProgress: a
-    .model({
-      userId: a.string().required(),
-      checklistId: a.id().required(),
-      itemId: a.id().required(),
-      completed: a.boolean().default(false),
-      completedAt: a.datetime(),
-      checklist: a.belongsTo('Checklist', 'checklistId'),
-      item: a.belongsTo('ChecklistItem', 'itemId'),
-    })
-    .authorization((allow) => [
-      allow.owner(),
     ]),
 });
 

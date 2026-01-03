@@ -359,15 +359,17 @@ body {
   font-size: 20px;
 }
 
-.edit-button, .delete-button {
+.share-button, .edit-button, .delete-button {
   background: none;
   border: none;
   cursor: pointer;
   padding: 0;
+  font-size: 20px;
   opacity: 0.6;
   transition: opacity 0.2s;
 }
 
+.share-button:hover,
 .edit-button:hover,
 .delete-button:hover {
   opacity: 1;
@@ -522,9 +524,6 @@ body {
 }
 
 .sections-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 16px;
 }
 
@@ -535,8 +534,16 @@ body {
   font-weight: 400;
 }
 
+.section-divider {
+  height: 40px;
+  margin: 24px 0;
+  background-image: url('data:image/svg+xml,<svg width="100%" height="40" xmlns="http://www.w3.org/2000/svg"><path d="M 0,20 Q 15,10 30,20 T 60,20 T 90,20 T 120,20 T 150,20 T 180,20 T 210,20 T 240,20 T 270,20 T 300,20 T 330,20 T 360,20 T 390,20 T 420,20 T 450,20 T 480,20 T 510,20 T 540,20 T 570,20 T 600,20 T 630,20 T 660,20 T 690,20 T 720,20 T 750,20 T 780,20 T 810,20 T 840,20 T 870,20 T 900,20 T 930,20 T 960,20 T 990,20 T 1020,20 T 1050,20 T 1080,20 T 1110,20 T 1140,20 T 1170,20 T 1200,20" stroke="%232b2b2b" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.3"/></svg>');
+  background-repeat: repeat-x;
+  background-position: center;
+}
+
 .add-section-button {
-  padding: 0;
+  padding: 12px 0;
   background: transparent;
   color: #2b2b2b;
   border: none;
@@ -545,6 +552,9 @@ body {
   font-family: 'Patrick Hand', cursive;
   text-decoration: underline;
   transition: opacity 0.2s;
+  margin-top: 24px;
+  width: 100%;
+  text-align: left;
 }
 
 .add-section-button:hover {
@@ -661,6 +671,38 @@ body {
   opacity: 0.4;
 }
 
+.item-actions {
+  display: flex;
+  gap: 4px;
+  align-self: start;
+  margin-top: 8px;
+}
+
+.move-item-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-size: 18px;
+  color: #2b2b2b;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.move-item-button:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.move-item-button:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
+}
+
 .delete-item-button {
   background: none;
   border: none;
@@ -669,8 +711,6 @@ body {
   font-size: 20px;
   opacity: 0.6;
   transition: opacity 0.2s;
-  align-self: start;
-  margin-top: 8px;
 }
 
 .delete-item-button:hover {
@@ -719,17 +759,19 @@ body {
 }
 
 .clone-button {
-  background: none;
+  background: #2b2b2b;
+  color: #fef3c7;
   border: none;
   cursor: pointer;
-  padding: 0;
-  font-size: 20px;
-  opacity: 0.6;
+  padding: 8px 16px;
+  font-size: 16px;
+  font-family: 'Patrick Hand', cursive;
+  border-radius: 4px;
   transition: opacity 0.2s;
 }
 
 .clone-button:hover {
-  opacity: 1;
+  opacity: 0.9;
 }
 
 .back-button {
@@ -876,6 +918,14 @@ body {
   text-decoration: line-through;
 }
 
+.checklist-item.disabled {
+  opacity: 0.7;
+}
+
+.checklist-item.disabled:hover {
+  opacity: 0.7;
+}
+
 .item-checkbox {
   width: 22px;
   margin-right: 12px;
@@ -913,6 +963,115 @@ body {
   margin: 0;
   opacity: 0.6;
   line-height: 1.5;
+}
+
+.share-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease;
+  cursor: pointer;
+}
+
+.share-dialog-content {
+  background: #fef3c7;
+  padding: 2rem;
+  border-radius: 12px;
+  max-width: 500px;
+  animation: slideIn 0.3s ease;
+  position: relative;
+  cursor: default;
+  font-family: 'Patrick Hand', cursive;
+}
+
+.share-dialog-content h2 {
+  color: #2b2b2b;
+  margin: 0 0 1rem 0;
+  font-size: 28px;
+}
+
+.share-dialog-content p {
+  color: #2b2b2b;
+  margin: 0 0 1rem 0;
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.dialog-note {
+  opacity: 0.7;
+  font-size: 16px !important;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 1.5rem;
+}
+
+.share-confirm-button,
+.unshare-button {
+  flex: 1;
+  background: #2b2b2b;
+  color: #fef3c7;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-family: 'Patrick Hand', cursive;
+  font-size: 18px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.share-confirm-button:hover,
+.unshare-button:hover {
+  opacity: 0.9;
+}
+
+.cancel-dialog-button {
+  flex: 1;
+  background: transparent;
+  color: #2b2b2b;
+  border: 2px solid #2b2b2b;
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-family: 'Patrick Hand', cursive;
+  font-size: 18px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.cancel-dialog-button:hover {
+  opacity: 0.7;
+}
+
+.close-dialog {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #2b2b2b;
+}
+
+.close-dialog:hover {
+  opacity: 1;
 }
 
 .completion-celebration {
@@ -1158,11 +1317,12 @@ body {
     gap: 0.5rem;
   }
 
-  .delete-item-button {
+  .item-actions {
     grid-column: 1 / 2;
     grid-row: auto;
     align-self: center;
     justify-self: end;
+    margin-top: 4px;
   }
 
   .checklist-item {
@@ -1194,11 +1354,6 @@ body {
     gap: 1rem;
   }
 
-  .sections-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
 
   .editor-header {
     flex-direction: column;

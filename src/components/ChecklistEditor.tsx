@@ -20,7 +20,6 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [isPublic, setIsPublic] = useState(false);
   const [sections, setSections] = useState<LocalSection[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -42,7 +41,6 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
         if (result.data) {
           setTitle(result.data.title);
           setDescription(result.data.description || '');
-          setIsPublic(result.data.isPublic || false);
 
           // Load sections
           const sectionsResult = await client.models.ChecklistSection.list({
@@ -66,7 +64,8 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
                     id: item.id,
                     title: item.title,
                     description: item.description || '',
-                    order: item.order
+                    order: item.order,
+                    completed: item.completed || false
                   }))
               };
             })
@@ -80,7 +79,6 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
         if (checklist) {
           setTitle(checklist.title);
           setDescription(checklist.description || '');
-          setIsPublic(checklist.isPublic);
           setSections(checklist.sections);
         }
       }
@@ -92,7 +90,6 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
   const initializeNewChecklist = () => {
     setTitle('');
     setDescription('');
-    setIsPublic(false);
     setSections([
       {
         id: LocalStorageManager.generateId(),
@@ -120,31 +117,99 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
             id: checklistId,
             title: title.trim(),
             description: description.trim(),
-            isPublic,
           });
 
-          // Delete all existing sections and items
+          // Smart diff: UPDATE existing, CREATE new, DELETE removed sections/items
           const existingSections = await client.models.ChecklistSection.list({
             filter: { checklistId: { eq: checklistId } }
           });
 
-          for (const section of existingSections.data || []) {
-            const existingItems = await client.models.ChecklistItem.list({
-              filter: { sectionId: { eq: section.id } }
-            });
+          const existingSectionIds = new Set((existingSections.data || []).map(s => s.id));
+          const currentSectionIds = new Set(sections.map(s => s.id));
 
-            for (const item of existingItems.data || []) {
-              await client.models.ChecklistItem.delete({ id: item.id });
+          // Delete removed sections (and their items)
+          const sectionsToDelete = (existingSections.data || []).filter(s => !currentSectionIds.has(s.id));
+          await Promise.all(
+            sectionsToDelete.map(async (section) => {
+              const existingItems = await client.models.ChecklistItem.list({
+                filter: { sectionId: { eq: section.id } }
+              });
+
+              await Promise.all(
+                (existingItems.data || []).map(item =>
+                  client.models.ChecklistItem.delete({ id: item.id })
+                )
+              );
+
+              await client.models.ChecklistSection.delete({ id: section.id });
+            })
+          );
+
+          // Update or create sections
+          for (const section of sections) {
+            let sectionId = section.id;
+
+            if (existingSectionIds.has(section.id)) {
+              // Update existing section
+              await client.models.ChecklistSection.update({
+                id: section.id,
+                title: section.title,
+                order: section.order,
+              });
+            } else {
+              // Create new section
+              const newSection = await client.models.ChecklistSection.create({
+                checklistId: checklistId!,
+                title: section.title,
+                order: section.order,
+              });
+              if (!newSection.data) continue;
+              sectionId = newSection.data.id;
             }
 
-            await client.models.ChecklistSection.delete({ id: section.id });
+            // Handle items for this section
+            const existingItems = await client.models.ChecklistItem.list({
+              filter: { sectionId: { eq: sectionId } }
+            });
+
+            const existingItemIds = new Set((existingItems.data || []).map(i => i.id));
+            const currentItemIds = new Set(section.items.map(i => i.id));
+
+            // Delete removed items
+            const itemsToDelete = (existingItems.data || []).filter(i => !currentItemIds.has(i.id));
+            await Promise.all(
+              itemsToDelete.map(item => client.models.ChecklistItem.delete({ id: item.id }))
+            );
+
+            // Update existing items and create new ones
+            const itemOperations = section.items.map(async (item) => {
+              if (existingItemIds.has(item.id)) {
+                // Update existing item (preserves completed field!)
+                await client.models.ChecklistItem.update({
+                  id: item.id,
+                  title: item.title,
+                  description: item.description || '',
+                  order: item.order,
+                });
+              } else {
+                // Create new item
+                await client.models.ChecklistItem.create({
+                  sectionId: sectionId,
+                  title: item.title,
+                  description: item.description || '',
+                  order: item.order,
+                  completed: item.completed || false,
+                });
+              }
+            });
+
+            await Promise.all(itemOperations);
           }
         } else {
           // Create new checklist
           const newChecklist = await client.models.Checklist.create({
             title: title.trim(),
             description: description.trim(),
-            isPublic,
             author: user.username || user.userId,
             viewCount: 0,
           });
@@ -154,24 +219,30 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
           }
 
           checklistId = newChecklist.data.id;
-        }
 
-        // Create sections and items
-        for (const section of sections) {
-          const newSection = await client.models.ChecklistSection.create({
-            checklistId: checklistId!,
-            title: section.title,
-            order: section.order,
-          });
+          // Create sections and items (batched for performance)
+          for (const section of sections) {
+            const newSection = await client.models.ChecklistSection.create({
+              checklistId: checklistId!,
+              title: section.title,
+              order: section.order,
+            });
 
-          if (newSection.data) {
-            for (const item of section.items) {
-              await client.models.ChecklistItem.create({
-                sectionId: newSection.data.id,
-                title: item.title,
-                description: item.description || '',
-                order: item.order,
-              });
+            if (newSection.data) {
+              const sectionId = newSection.data.id;
+              if (section.items.length > 0) {
+                // Create all items in parallel instead of sequentially
+                await Promise.all(
+                  section.items.map(item =>
+                    client.models.ChecklistItem.create({
+                      sectionId: sectionId,
+                      title: item.title,
+                      description: item.description || '',
+                      order: item.order,
+                    })
+                  )
+                );
+              }
             }
           }
         }
@@ -181,7 +252,7 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
           id: checklistId || LocalStorageManager.generateId(),
           title: title.trim(),
           description: description.trim(),
-          isPublic,
+          isPublic: false,
           createdAt: new Date().toISOString(),
           sections,
           progress: {},
@@ -287,6 +358,42 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
     updateSection(sectionId, { items: updatedItems });
   };
 
+  const moveItemUp = (sectionId: string, itemId: string) => {
+    const section = sections.find(s => s.id === sectionId);
+    if (!section) return;
+
+    const itemIndex = section.items.findIndex(item => item.id === itemId);
+    if (itemIndex <= 0) return; // Already at top
+
+    const updatedItems = [...section.items];
+    [updatedItems[itemIndex - 1], updatedItems[itemIndex]] = [updatedItems[itemIndex], updatedItems[itemIndex - 1]];
+
+    // Update order values
+    updatedItems.forEach((item, index) => {
+      item.order = index;
+    });
+
+    updateSection(sectionId, { items: updatedItems });
+  };
+
+  const moveItemDown = (sectionId: string, itemId: string) => {
+    const section = sections.find(s => s.id === sectionId);
+    if (!section) return;
+
+    const itemIndex = section.items.findIndex(item => item.id === itemId);
+    if (itemIndex < 0 || itemIndex >= section.items.length - 1) return; // Already at bottom
+
+    const updatedItems = [...section.items];
+    [updatedItems[itemIndex], updatedItems[itemIndex + 1]] = [updatedItems[itemIndex + 1], updatedItems[itemIndex]];
+
+    // Update order values
+    updatedItems.forEach((item, index) => {
+      item.order = index;
+    });
+
+    updateSection(sectionId, { items: updatedItems });
+  };
+
   return (
     <div className="checklist-editor">
       <div className="editor-header">
@@ -330,88 +437,101 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
           />
         </div>
 
-        <div className="form-group">
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={isPublic}
-              onChange={(e) => setIsPublic(e.target.checked)}
-            />
-            Make this checklist public
-            <small>Public checklists can be viewed by anyone</small>
-          </label>
-        </div>
-
         <div className="sections-container">
           <div className="sections-header">
             <h3>Sections</h3>
-            <button onClick={addSection} className="add-section-button">
-              + Add Section
-            </button>
           </div>
 
-          {sections.map((section) => (
-            <div key={section.id} className="section-editor">
-              <div className="section-header">
-                <input
-                  type="text"
-                  value={section.title}
-                  onChange={(e) => updateSection(section.id, { title: e.target.value })}
-                  className="section-title-input"
-                />
-                <button
-                  onClick={() => deleteSection(section.id)}
-                  className="delete-section-button"
-                  disabled={sections.length <= 1}
-                >
-                  🗑️
-                </button>
-              </div>
+          {sections.map((section, sectionIndex) => (
+            <React.Fragment key={section.id}>
+              <div className="section-editor">
+                <div className="section-header">
+                  <input
+                    type="text"
+                    value={section.title}
+                    onChange={(e) => updateSection(section.id, { title: e.target.value })}
+                    className="section-title-input"
+                  />
+                  <button
+                    onClick={() => deleteSection(section.id)}
+                    className="delete-section-button"
+                    disabled={sections.length <= 1}
+                  >
+                    🗑️
+                  </button>
+                </div>
 
-              <div className="items-container">
-                {section.items.map((item) => (
-                  <div key={item.id} className="item-editor">
-                    <div className="item-inputs">
-                      <input
-                        type="text"
-                        value={item.title}
-                        onChange={(e) => updateItem(section.id, item.id, { title: e.target.value })}
-                        onKeyDown={(e) => handleItemTitleKeyDown(e, section.id)}
-                        placeholder="Item title"
-                        className="item-title-input"
-                        data-item-id={item.id}
-                      />
-                      <textarea
-                        value={item.description || ''}
-                        onChange={(e) => {
-                          updateItem(section.id, item.id, { description: e.target.value });
-                          // Auto-resize textarea
-                          e.target.style.height = 'auto';
-                          e.target.style.height = e.target.scrollHeight + 'px';
-                        }}
-                        onKeyDown={(e) => handleItemDescriptionKeyDown(e, section.id)}
-                        placeholder="Description (optional)"
-                        className="item-description-input"
-                      />
+                <div className="items-container">
+                  {section.items.map((item, itemIndex) => (
+                    <div key={item.id} className="item-editor">
+                      <div className="item-inputs">
+                        <input
+                          type="text"
+                          value={item.title}
+                          onChange={(e) => updateItem(section.id, item.id, { title: e.target.value })}
+                          onKeyDown={(e) => handleItemTitleKeyDown(e, section.id)}
+                          placeholder="Item title"
+                          className="item-title-input"
+                          data-item-id={item.id}
+                        />
+                        <textarea
+                          value={item.description || ''}
+                          onChange={(e) => {
+                            updateItem(section.id, item.id, { description: e.target.value });
+                            // Auto-resize textarea
+                            e.target.style.height = 'auto';
+                            e.target.style.height = e.target.scrollHeight + 'px';
+                          }}
+                          onKeyDown={(e) => handleItemDescriptionKeyDown(e, section.id)}
+                          placeholder="Description (optional)"
+                          className="item-description-input"
+                        />
+                      </div>
+                      <div className="item-actions">
+                        <button
+                          onClick={() => moveItemUp(section.id, item.id)}
+                          className="move-item-button"
+                          disabled={itemIndex === 0}
+                          title="Move up"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          onClick={() => moveItemDown(section.id, item.id)}
+                          className="move-item-button"
+                          disabled={itemIndex === section.items.length - 1}
+                          title="Move down"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          onClick={() => deleteItem(section.id, item.id)}
+                          className="delete-item-button"
+                          title="Delete"
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      onClick={() => deleteItem(section.id, item.id)}
-                      className="delete-item-button"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                ))}
+                  ))}
 
-                <button
-                  onClick={() => addItem(section.id, false)}
-                  className="add-item-button"
-                >
-                  + Add Item
-                </button>
+                  <button
+                    onClick={() => addItem(section.id, false)}
+                    className="add-item-button"
+                  >
+                    + Add Item
+                  </button>
+                </div>
               </div>
-            </div>
+              {sectionIndex < sections.length - 1 && (
+                <div className="section-divider"></div>
+              )}
+            </React.Fragment>
           ))}
+
+          <button onClick={addSection} className="add-section-button">
+            + Add Section
+          </button>
         </div>
       </div>
     </div>

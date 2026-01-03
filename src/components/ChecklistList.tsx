@@ -20,7 +20,7 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
   onCreate,
   user,
 }) => {
-  const [filter, setFilter] = useState<'mine' | 'public'>('mine');
+  const [filter, setFilter] = useState<'mine' | 'shared'>('mine');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'updated' | 'alphabetical'>('updated');
 
@@ -31,7 +31,12 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
         if (!user) return true; // Local storage, show all
         return checklist.author === user.userId || checklist.author === user.username;
       }
-      if (filter === 'public') return checklist.isPublic;
+      if (filter === 'shared') {
+        // Shared lists are public lists created by OTHER users
+        if (!user) return false; // No shared lists in local storage mode
+        const isOwnList = checklist.author === user.userId || checklist.author === user.username;
+        return checklist.isPublic && !isOwnList;
+      }
       return true;
     })
     .filter(checklist => {
@@ -69,26 +74,24 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
           filter: { checklistId: { eq: id } }
         });
 
-        for (const section of sectionsResult.data || []) {
-          const itemsResult = await client.models.ChecklistItem.list({
-            filter: { sectionId: { eq: section.id } }
-          });
+        // Delete all sections and items in parallel
+        await Promise.all(
+          (sectionsResult.data || []).map(async (section) => {
+            const itemsResult = await client.models.ChecklistItem.list({
+              filter: { sectionId: { eq: section.id } }
+            });
 
-          for (const item of itemsResult.data || []) {
-            await client.models.ChecklistItem.delete({ id: item.id });
-          }
+            // Delete all items in this section in parallel
+            await Promise.all(
+              (itemsResult.data || []).map(item =>
+                client.models.ChecklistItem.delete({ id: item.id })
+              )
+            );
 
-          await client.models.ChecklistSection.delete({ id: section.id });
-        }
-
-        // Delete user progress
-        const progressResult = await client.models.UserProgress.list({
-          filter: { checklistId: { eq: id } }
-        });
-
-        for (const progress of progressResult.data || []) {
-          await client.models.UserProgress.delete({ id: progress.id });
-        }
+            // Then delete the section
+            await client.models.ChecklistSection.delete({ id: section.id });
+          })
+        );
 
         // Finally delete the checklist
         await client.models.Checklist.delete({ id });
@@ -125,20 +128,20 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
   return (
     <div className="checklist-list">
       <div className="list-header">
-        <h2>Your Checklists</h2>
+        <h2>Checklists</h2>
         <div className="list-controls">
           <div className="filter-buttons">
             <button
               className={filter === 'mine' ? 'active' : ''}
               onClick={() => setFilter('mine')}
             >
-              Created by Me
+              My Lists
             </button>
             <button
-              className={filter === 'public' ? 'active' : ''}
-              onClick={() => setFilter('public')}
+              className={filter === 'shared' ? 'active' : ''}
+              onClick={() => setFilter('shared')}
             >
-              Public
+              Shared Templates
             </button>
           </div>
           <input
@@ -169,12 +172,14 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
             <div className="card-header">
               <h3>
                 {checklist.title}
-                <span
-                  className="privacy-icon"
-                  title={checklist.isPublic ? 'Public' : 'Private'}
-                >
-                  {checklist.isPublic ? '🌍' : '🔒'}
-                </span>
+                {checklist.isPublic && (
+                  <span
+                    className="privacy-icon shared-badge"
+                    title="Shared as public template"
+                  >
+                    🌍
+                  </span>
+                )}
               </h3>
               <div className="card-actions">
                 {isOwner(checklist) && (
@@ -206,11 +211,6 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
             <div className="card-stats">
               {checklist.sections?.length > 0 && (
                 <span>{checklist.sections.length} section{checklist.sections.length !== 1 ? 's' : ''}</span>
-              )}
-              {checklist.sections && (
-                <span>
-                  {checklist.sections.reduce((total: number, section: any) => total + (section.items?.length || 0), 0)} items
-                </span>
               )}
             </div>
           </div>
