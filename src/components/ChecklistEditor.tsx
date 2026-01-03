@@ -22,8 +22,22 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
   const [description, setDescription] = useState('');
   const [sections, setSections] = useState<LocalSection[]>([]);
   const [loading, setLoading] = useState(false);
+  const [tagInput, setTagInput] = useState<Record<string, string>>({});
+  const [showTagSuggestions, setShowTagSuggestions] = useState<Record<string, boolean>>({});
 
   const isEditing = Boolean(checklistId);
+
+  const getAllTagsInChecklist = (): string[] => {
+    const allTags = new Set<string>();
+    sections.forEach(section => {
+      section.items.forEach(item => {
+        if (item.tags) {
+          item.tags.forEach(tag => allTags.add(tag));
+        }
+      });
+    });
+    return Array.from(allTags);
+  };
 
   useEffect(() => {
     if (isEditing && checklistId) {
@@ -65,7 +79,8 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
                     title: item.title,
                     description: item.description || '',
                     order: item.order,
-                    completed: item.completed || false
+                    completed: item.completed || false,
+                    tags: (item.tags || []).filter((tag): tag is string => tag !== null)
                   }))
               };
             })
@@ -104,6 +119,24 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
     if (!title.trim()) {
       alert('Please enter a title for your checklist');
       return;
+    }
+
+    // Validate that all sections have titles
+    for (const section of sections) {
+      if (!section.title.trim()) {
+        alert('Please enter a title for all sections');
+        return;
+      }
+    }
+
+    // Validate that all items have titles
+    for (const section of sections) {
+      for (const item of section.items) {
+        if (!item.title.trim()) {
+          alert(`Please enter a title for all items in "${section.title}"`);
+          return;
+        }
+      }
     }
 
     setLoading(true);
@@ -190,6 +223,7 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
                   title: item.title,
                   description: item.description || '',
                   order: item.order,
+                  tags: item.tags || [],
                 });
               } else {
                 // Create new item
@@ -199,6 +233,7 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
                   description: item.description || '',
                   order: item.order,
                   completed: item.completed || false,
+                  tags: item.tags || [],
                 });
               }
             });
@@ -211,7 +246,7 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
             title: title.trim(),
             description: description.trim(),
             author: user.username || user.userId,
-            viewCount: 0,
+            useCount: 0,
           });
 
           if (!newChecklist.data) {
@@ -239,6 +274,7 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
                       title: item.title,
                       description: item.description || '',
                       order: item.order,
+                      tags: item.tags || [],
                     })
                   )
                 );
@@ -394,6 +430,64 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
     updateSection(sectionId, { items: updatedItems });
   };
 
+  const addTag = (sectionId: string, itemId: string, tag: string) => {
+    const trimmedTag = tag.trim();
+    if (!trimmedTag) return;
+
+    const section = sections.find(s => s.id === sectionId);
+    if (!section) return;
+
+    const item = section.items.find(i => i.id === itemId);
+    if (!item) return;
+
+    const currentTags = item.tags || [];
+    if (currentTags.includes(trimmedTag)) return; // Tag already exists
+
+    updateItem(sectionId, itemId, { tags: [...currentTags, trimmedTag] });
+    setTagInput({ ...tagInput, [itemId]: '' });
+    setShowTagSuggestions({ ...showTagSuggestions, [itemId]: false });
+  };
+
+  const removeTag = (sectionId: string, itemId: string, tagToRemove: string) => {
+    const section = sections.find(s => s.id === sectionId);
+    if (!section) return;
+
+    const item = section.items.find(i => i.id === itemId);
+    if (!item) return;
+
+    const updatedTags = (item.tags || []).filter(tag => tag !== tagToRemove);
+    updateItem(sectionId, itemId, { tags: updatedTags });
+  };
+
+  const handleTagInputChange = (itemId: string, value: string) => {
+    setTagInput({ ...tagInput, [itemId]: value });
+    setShowTagSuggestions({ ...showTagSuggestions, [itemId]: value.length > 0 });
+  };
+
+  const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, sectionId: string, itemId: string) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const tag = tagInput[itemId] || '';
+      addTag(sectionId, itemId, tag);
+    }
+  };
+
+  const getTagSuggestions = (itemId: string): string[] => {
+    const input = (tagInput[itemId] || '').toLowerCase();
+    if (!input) return [];
+
+    const section = sections.find(s => s.items.some(i => i.id === itemId));
+    if (!section) return [];
+
+    const item = section.items.find(i => i.id === itemId);
+    const currentTags = item?.tags || [];
+
+    const allTags = getAllTagsInChecklist();
+    return allTags
+      .filter(tag => !currentTags.includes(tag) && tag.toLowerCase().includes(input))
+      .slice(0, 5);
+  };
+
   return (
     <div className="checklist-editor">
       <div className="editor-header">
@@ -433,15 +527,11 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Enter checklist description (optional)"
             className="form-textarea"
-            rows={3}
+            rows={1}
           />
         </div>
 
         <div className="sections-container">
-          <div className="sections-header">
-            <h3>Sections</h3>
-          </div>
-
           {sections.map((section, sectionIndex) => (
             <React.Fragment key={section.id}>
               <div className="section-editor">
@@ -450,14 +540,16 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
                     type="text"
                     value={section.title}
                     onChange={(e) => updateSection(section.id, { title: e.target.value })}
+                    placeholder="Section title *"
                     className="section-title-input"
+                    required
                   />
                   <button
                     onClick={() => deleteSection(section.id)}
                     className="delete-section-button"
                     disabled={sections.length <= 1}
                   >
-                    🗑️
+                    <span className="material-symbols-outlined">delete</span>
                   </button>
                 </div>
 
@@ -470,9 +562,10 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
                           value={item.title}
                           onChange={(e) => updateItem(section.id, item.id, { title: e.target.value })}
                           onKeyDown={(e) => handleItemTitleKeyDown(e, section.id)}
-                          placeholder="Item title"
+                          placeholder="Item title *"
                           className="item-title-input"
                           data-item-id={item.id}
+                          required
                         />
                         <textarea
                           value={item.description || ''}
@@ -486,6 +579,48 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
                           placeholder="Description (optional)"
                           className="item-description-input"
                         />
+                        <div className="item-tags-container">
+                          {item.tags && item.tags.length > 0 && (
+                            <div className="item-tags">
+                              {item.tags.map(tag => (
+                                <span key={tag} className="tag-pill">
+                                  {tag}
+                                  <button
+                                    onClick={() => removeTag(section.id, item.id, tag)}
+                                    className="tag-remove"
+                                    type="button"
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <div className="tag-input-wrapper">
+                            <input
+                              type="text"
+                              value={tagInput[item.id] || ''}
+                              onChange={(e) => handleTagInputChange(item.id, e.target.value)}
+                              onKeyDown={(e) => handleTagInputKeyDown(e, section.id, item.id)}
+                              onBlur={() => setTimeout(() => setShowTagSuggestions({ ...showTagSuggestions, [item.id]: false }), 200)}
+                              placeholder="Add tags..."
+                              className="tag-input"
+                            />
+                            {showTagSuggestions[item.id] && getTagSuggestions(item.id).length > 0 && (
+                              <div className="tag-suggestions">
+                                {getTagSuggestions(item.id).map(suggestion => (
+                                  <div
+                                    key={suggestion}
+                                    className="tag-suggestion"
+                                    onClick={() => addTag(section.id, item.id, suggestion)}
+                                  >
+                                    {suggestion}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
                       <div className="item-actions">
                         <button
@@ -509,7 +644,7 @@ export const ChecklistEditor: React.FC<ChecklistEditorProps> = ({
                           className="delete-item-button"
                           title="Delete"
                         >
-                          🗑️
+                          <span className="material-symbols-outlined">delete</span>
                         </button>
                       </div>
                     </div>

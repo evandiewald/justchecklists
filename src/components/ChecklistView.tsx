@@ -26,6 +26,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   const [hideCompleted, setHideCompleted] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showShareDialog, setShowShareDialog] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
   useEffect(() => {
     loadChecklist();
@@ -62,7 +63,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                     title: item.title,
                     description: item.description || '',
                     order: item.order,
-                    completed: item.completed || false
+                    completed: item.completed || false,
+                    tags: (item.tags || []).filter((tag): tag is string => tag !== null)
                   }))
               };
             })
@@ -152,6 +154,59 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     }
   };
 
+  const checkAllInSection = async (sectionId: string) => {
+    if (!checklist) return;
+
+    const section = checklist.sections.find(s => s.id === sectionId);
+    if (!section) return;
+
+    // Determine if all items in this section are already completed
+    const allSectionItemsCompleted = section.items.every(item => progress[item.id] === true);
+    const newCompletedState = !allSectionItemsCompleted;
+
+    // Create new progress with all items in this section toggled
+    const newProgress = { ...progress };
+    section.items.forEach(item => {
+      newProgress[item.id] = newCompletedState;
+    });
+
+    setProgress(newProgress);
+
+    // Check if all items are now completed for celebration
+    const allItemIds = new Set<string>();
+    checklist.sections.forEach(section => {
+      section.items.forEach(item => {
+        allItemIds.add(item.id);
+      });
+    });
+
+    const allCompleted = Array.from(allItemIds).every(id => newProgress[id] === true);
+    if (allCompleted && allItemIds.size > 0) {
+      setShowCelebration(true);
+    }
+
+    if (user) {
+      // Batch update all items in Amplify using Promise.all
+      try {
+        await Promise.all(
+          section.items.map(item =>
+            client.models.ChecklistItem.update({
+              id: item.id,
+              completed: newCompletedState
+            })
+          )
+        );
+      } catch (error) {
+        console.error('Error updating items:', error);
+      }
+    } else {
+      // Update all items in local storage
+      section.items.forEach(item => {
+        LocalStorageManager.updateProgress(checklistId, item.id, newCompletedState);
+      });
+    }
+  };
+
   const getCompletionStats = () => {
     if (!checklist) return { completed: 0, total: 0 };
 
@@ -174,6 +229,29 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   const getCompletionPercentage = () => {
     const { completed, total } = getCompletionStats();
     return total > 0 ? Math.round((completed / total) * 100) : 0;
+  };
+
+  const getAllTags = (): string[] => {
+    if (!checklist) return [];
+    const allTags = new Set<string>();
+    checklist.sections.forEach(section => {
+      section.items.forEach(item => {
+        if (item.tags) {
+          item.tags.forEach(tag => allTags.add(tag));
+        }
+      });
+    });
+    return Array.from(allTags).sort();
+  };
+
+  const toggleTag = (tag: string) => {
+    setSelectedTags(prev => {
+      if (prev.includes(tag)) {
+        return prev.filter(t => t !== tag);
+      } else {
+        return [...prev, tag];
+      }
+    });
   };
 
   const handleDelete = async () => {
@@ -266,7 +344,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           description: clonedChecklist.description || '',
           isPublic: false,
           author: user.username || user.userId,
-          viewCount: 0,
+          useCount: 0,
         });
 
         if (!newChecklist.data) {
@@ -298,6 +376,20 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 )
               );
             }
+          }
+        }
+
+        // Increment use count for the template (if it's someone else's)
+        if (!isOwner() && checklist.isPublic) {
+          try {
+            await client.models.Checklist.update({
+              id: checklistId,
+              useCount: ((checklist as any).useCount || 0) + 1,
+              lastUsedAt: new Date().toISOString(),
+            });
+          } catch (error) {
+            console.error('Error updating use count:', error);
+            // Don't fail the whole operation if this fails
           }
         }
 
@@ -373,13 +465,13 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
             {isOwner() ? (
               <>
                 <button onClick={() => setShowShareDialog(true)} className="share-button" title="Share as template">
-                  🔗
+                  <span className="material-symbols-outlined">share</span>
                 </button>
                 <button onClick={() => onEdit(checklistId)} className="edit-button" title="Edit">
-                  ✏️
+                  <span className="material-symbols-outlined">edit</span>
                 </button>
                 <button onClick={handleDelete} className="delete-button" title="Delete">
-                  🗑️
+                  <span className="material-symbols-outlined">delete</span>
                 </button>
               </>
             ) : (
@@ -397,7 +489,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 className="privacy-icon"
                 title="Shared as public template"
               >
-                🌍
+                <span className="material-symbols-outlined">public</span>
               </span>
             )}
           </h1>
@@ -412,6 +504,22 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           <div className="progress-text">
             {completed} of {total} completed ({percentage}%)
           </div>
+          {getAllTags().length > 0 && (
+            <div className="tag-filter-container">
+              <span className="tag-filter-label">Filter by tags:</span>
+              <div className="tag-filter-pills">
+                {getAllTags().map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => toggleTag(tag)}
+                    className={`tag-filter-pill ${selectedTags.includes(tag) ? 'active' : ''}`}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="progress-controls">
             <input
               type="text"
@@ -438,6 +546,13 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
             // Filter by completion status
             if (hideCompleted && progress[item.id]) return false;
 
+            // Filter by tags (AND logic - item must have ALL selected tags)
+            if (selectedTags.length > 0) {
+              const itemTags = item.tags || [];
+              const hasAllTags = selectedTags.every(tag => itemTags.includes(tag));
+              if (!hasAllTags) return false;
+            }
+
             // Filter by search query
             if (searchQuery) {
               const query = searchQuery.toLowerCase();
@@ -451,9 +566,22 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           });
           if (visibleItems.length === 0) return null;
 
+          const allSectionItemsCompleted = section.items.every(item => progress[item.id] === true);
+
           return (
           <div key={section.id} className="section">
-            <h2 className="section-title">{section.title}</h2>
+            <div className="section-header-view">
+              <h2 className="section-title">{section.title}</h2>
+              {isOwner() && visibleItems.length > 0 && (
+                <button
+                  onClick={() => checkAllInSection(section.id)}
+                  className="check-all-button"
+                  title={allSectionItemsCompleted ? "Uncheck all items in this section" : "Check all items in this section"}
+                >
+                  {allSectionItemsCompleted ? '✗ Uncheck all' : '✓ Check all'}
+                </button>
+              )}
+            </div>
             <div className="section-items">
               {visibleItems.map((item) => (
                 <div
@@ -466,9 +594,20 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                     {progress[item.id] ? '☑' : '☐'}
                   </span>
                   <div className="item-content">
-                    <span className="item-title">{item.title}</span>
-                    {item.description && (
-                      <span className="item-description">({item.description})</span>
+                    <div className="item-text-content">
+                      <span className="item-title">{item.title}</span>
+                      {item.description && (
+                        <span className="item-description">({item.description})</span>
+                      )}
+                    </div>
+                    {item.tags && item.tags.length > 0 && (
+                      <div className="item-tags-view">
+                        {item.tags.map(tag => (
+                          <span key={tag} className="tag-pill-view">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>

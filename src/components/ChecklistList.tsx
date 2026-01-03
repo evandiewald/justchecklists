@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LocalStorageManager } from '../utils/localStorage';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
@@ -22,7 +22,16 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
 }) => {
   const [filter, setFilter] = useState<'mine' | 'shared'>('mine');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'updated' | 'alphabetical'>('updated');
+  const [sortBy, setSortBy] = useState<'updated' | 'alphabetical' | 'trending' | 'mostUsed'>('updated');
+
+  // Reset sort when filter changes
+  useEffect(() => {
+    if (filter === 'mine' && (sortBy === 'trending' || sortBy === 'mostUsed')) {
+      setSortBy('updated');
+    } else if (filter === 'shared' && sortBy === 'updated') {
+      setSortBy('trending');
+    }
+  }, [filter]);
 
   const filteredChecklists = checklists
     .filter(checklist => {
@@ -52,6 +61,16 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
       // Sort
       if (sortBy === 'alphabetical') {
         return a.title.localeCompare(b.title);
+      } else if (sortBy === 'trending') {
+        // Sort by lastUsedAt (most recent first)
+        const aDate = new Date((a as any).lastUsedAt || 0).getTime();
+        const bDate = new Date((b as any).lastUsedAt || 0).getTime();
+        return bDate - aDate;
+      } else if (sortBy === 'mostUsed') {
+        // Sort by useCount (highest first)
+        const aCount = (a as any).useCount || 0;
+        const bCount = (b as any).useCount || 0;
+        return bCount - aCount;
       } else {
         // Sort by updated (most recent first)
         const aDate = new Date(a.updatedAt || a.createdAt || 0).getTime();
@@ -112,19 +131,6 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
     return checklist.author === user.userId;
   };
 
-  if (checklists.length === 0) {
-    return (
-      <div className="empty-state">
-        <div className="empty-icon">📋</div>
-        <h2>No Checklists Yet</h2>
-        <p>Create your first checklist to get started!</p>
-        <button onClick={onCreate} className="create-button-large">
-          Create Your First Checklist
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="checklist-list">
       <div className="list-header">
@@ -153,69 +159,104 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
           />
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as 'updated' | 'alphabetical')}
+            onChange={(e) => setSortBy(e.target.value as 'updated' | 'alphabetical' | 'trending' | 'mostUsed')}
             className="sort-select"
           >
-            <option value="updated">Recent</option>
-            <option value="alphabetical">A-Z</option>
+            {filter === 'mine' ? (
+              <>
+                <option value="updated">Recent</option>
+                <option value="alphabetical">A-Z</option>
+              </>
+            ) : (
+              <>
+                <option value="trending">Trending</option>
+                <option value="mostUsed">Most Used</option>
+                <option value="alphabetical">A-Z</option>
+              </>
+            )}
           </select>
         </div>
       </div>
 
-      <div className="checklist-grid">
-        {filteredChecklists.map(checklist => (
-          <div
-            key={checklist.id}
-            className="checklist-card"
-            onClick={() => onView(checklist.id)}
-          >
-            <div className="card-header">
-              <h3>
-                {checklist.title}
-                {checklist.isPublic && (
-                  <span
-                    className="privacy-icon shared-badge"
-                    title="Shared as public template"
-                  >
-                    🌍
-                  </span>
-                )}
-              </h3>
-              <div className="card-actions">
-                {isOwner(checklist) && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onEdit(checklist.id);
-                    }}
-                    className="edit-button"
-                  >
-                    ✏️
-                  </button>
-                )}
-                {isOwner(checklist) && (
-                  <button
-                    onClick={(e) => handleDelete(checklist.id, e)}
-                    className="delete-button"
-                  >
-                    🗑️
-                  </button>
+      {filteredChecklists.length === 0 ? (
+        <div className="empty-state">
+          {filter === 'mine' ? (
+            <>
+              <h2>No Checklists Yet</h2>
+              <p>
+                Create your first checklist or start from a{' '}
+                <span className="shared-template-link" onClick={() => setFilter('shared')}>
+                  shared template
+                </span>{' '}
+                to get started!
+              </p>
+              <button onClick={onCreate} className="create-button-large">
+                Create Your First Checklist
+              </button>
+            </>
+          ) : (
+            <>
+              <h2>No Shared Templates</h2>
+              <p>There are no public templates available yet. Check back later or create your own!</p>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="checklist-grid">
+          {filteredChecklists.map(checklist => (
+            <div
+              key={checklist.id}
+              className="checklist-card"
+              onClick={() => onView(checklist.id)}
+            >
+              <div className="card-header">
+                <h3>
+                  {checklist.title}
+                  {checklist.isPublic && (
+                    <span
+                      className="privacy-icon shared-badge"
+                      title="Shared as public template"
+                    >
+                      <span className="material-symbols-outlined">public</span>
+                    </span>
+                  )}
+                </h3>
+                <div className="card-actions">
+                  {isOwner(checklist) && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEdit(checklist.id);
+                      }}
+                      className="edit-button"
+                    >
+                      <span className="material-symbols-outlined">edit</span>
+                    </button>
+                  )}
+                  {isOwner(checklist) && (
+                    <button
+                      onClick={(e) => handleDelete(checklist.id, e)}
+                      className="delete-button"
+                    >
+                      <span className="material-symbols-outlined">delete</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {checklist.description && (
+                <p className="card-description">{checklist.description}</p>
+              )}
+
+              <div className="card-stats">
+                {checklist.sections?.length > 0 && (
+                  <span>{checklist.sections.length} section{checklist.sections.length !== 1 ? 's' : ''}</span>
                 )}
               </div>
             </div>
-
-            {checklist.description && (
-              <p className="card-description">{checklist.description}</p>
-            )}
-
-            <div className="card-stats">
-              {checklist.sections?.length > 0 && (
-                <span>{checklist.sections.length} section{checklist.sections.length !== 1 ? 's' : ''}</span>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

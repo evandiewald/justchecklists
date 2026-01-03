@@ -222,6 +222,17 @@ body {
   opacity: 0.7;
 }
 
+.shared-template-link {
+  color: #2b2b2b;
+  text-decoration: underline;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.shared-template-link:hover {
+  opacity: 0.7;
+}
+
 /* Checklist List */
 .checklist-list {
   background: transparent;
@@ -364,9 +375,18 @@ body {
   border: none;
   cursor: pointer;
   padding: 0;
-  font-size: 20px;
   opacity: 0.6;
   transition: opacity 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.share-button .material-symbols-outlined,
+.edit-button .material-symbols-outlined,
+.delete-button .material-symbols-outlined {
+  font-size: 20px;
+  color: #2b2b2b;
 }
 
 .share-button:hover,
@@ -586,6 +606,11 @@ body {
   color: #2b2b2b;
 }
 
+.section-title-input::placeholder {
+  color: #2b2b2b;
+  opacity: 0.4;
+}
+
 .section-title-input:focus {
   outline: none;
   opacity: 0.8;
@@ -596,9 +621,16 @@ body {
   border: none;
   cursor: pointer;
   padding: 0;
-  font-size: 20px;
   opacity: 0.6;
   transition: opacity 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.delete-section-button .material-symbols-outlined {
+  font-size: 20px;
+  color: #2b2b2b;
 }
 
 .delete-section-button:hover:not(:disabled) {
@@ -671,6 +703,102 @@ body {
   opacity: 0.4;
 }
 
+.item-tags-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.item-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #2b2b2b;
+  color: #fef3c7;
+  border-radius: 12px;
+  font-size: 14px;
+  font-family: 'Patrick Hand', cursive;
+}
+
+.tag-remove {
+  background: none;
+  border: none;
+  color: #fef3c7;
+  cursor: pointer;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.tag-remove:hover {
+  opacity: 1;
+}
+
+.tag-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.tag-input {
+  width: 100%;
+  padding: 4px 0;
+  border: none;
+  border-bottom: 1px solid rgba(43, 43, 43, 0.3);
+  background: transparent;
+  font-family: 'Patrick Hand', cursive;
+  font-size: 16px;
+  color: #2b2b2b;
+  opacity: 0.6;
+}
+
+.tag-input:focus {
+  outline: none;
+  opacity: 1;
+  border-bottom-color: #2b2b2b;
+}
+
+.tag-input::placeholder {
+  opacity: 0.4;
+}
+
+.tag-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #fef3c7;
+  border: 1px solid #2b2b2b;
+  border-radius: 4px;
+  margin-top: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.tag-suggestion {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-family: 'Patrick Hand', cursive;
+  font-size: 16px;
+  color: #2b2b2b;
+  transition: background 0.2s;
+}
+
+.tag-suggestion:hover {
+  background: rgba(43, 43, 43, 0.1);
+}
+
 .item-actions {
   display: flex;
   gap: 4px;
@@ -708,9 +836,16 @@ body {
   border: none;
   cursor: pointer;
   padding: 0;
-  font-size: 20px;
   opacity: 0.6;
   transition: opacity 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.delete-item-button .material-symbols-outlined {
+  font-size: 20px;
+  color: #2b2b2b;
 }
 
 .delete-item-button:hover {
@@ -803,9 +938,15 @@ body {
 }
 
 .privacy-icon {
-  font-size: 20px;
   opacity: 0.6;
   cursor: help;
+  display: inline-flex;
+  align-items: center;
+}
+
+.privacy-icon .material-symbols-outlined {
+  font-size: 20px;
+  color: #2b2b2b;
 }
 
 .checklist-description {
@@ -844,6 +985,48 @@ body {
   margin-bottom: 12px;
 }
 
+.tag-filter-container {
+  margin-top: 12px;
+  margin-bottom: 12px;
+}
+
+.tag-filter-label {
+  color: #2b2b2b;
+  font-size: 18px;
+  opacity: 0.7;
+  margin-right: 8px;
+}
+
+.tag-filter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tag-filter-pill {
+  padding: 6px 12px;
+  background: transparent;
+  border: 2px solid #2b2b2b;
+  border-radius: 12px;
+  color: #2b2b2b;
+  font-size: 16px;
+  font-family: 'Patrick Hand', cursive;
+  cursor: pointer;
+  transition: all 0.2s;
+  opacity: 0.6;
+}
+
+.tag-filter-pill:hover {
+  opacity: 0.8;
+}
+
+.tag-filter-pill.active {
+  background: #2b2b2b;
+  color: #fef3c7;
+  opacity: 1;
+}
+
 .progress-controls {
   display: flex;
   gap: 16px;
@@ -878,31 +1061,57 @@ body {
   margin-bottom: 36px;
 }
 
+.section-header-view {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  gap: 16px;
+}
+
 .section-title {
   color: #2b2b2b;
   font-size: 24px;
   font-weight: 400;
-  margin: 0 0 12px 0;
+  margin: 0;
   padding: 0;
   border: none;
+}
+
+.check-all-button {
+  background: transparent;
+  border: none;
+  color: #2b2b2b;
+  cursor: pointer;
+  font-size: 18px;
+  font-family: 'Patrick Hand', cursive;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+  padding: 0;
+  white-space: nowrap;
+  text-decoration: underline;
+}
+
+.check-all-button:hover {
+  opacity: 1;
 }
 
 .section-items {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 4px;
 }
 
 .checklist-item {
   display: flex;
-  align-items: center;
-  height: 36px;
+  align-items: flex-start;
+  min-height: 36px;
+  padding: 4px 0;
   font-size: 22px;
   cursor: pointer;
   transition: opacity 0.2s;
   background: transparent;
   border: none;
-  padding: 0;
   margin: 0;
 }
 
@@ -929,9 +1138,11 @@ body {
 .item-checkbox {
   width: 22px;
   margin-right: 12px;
+  margin-top: 2px;
   cursor: pointer;
   user-select: none;
   font-size: 22px;
+  flex-shrink: 0;
 }
 
 .checkbox-input {
@@ -945,8 +1156,38 @@ body {
 .item-content {
   flex: 1;
   display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.item-text-content {
+  display: flex;
   align-items: baseline;
   gap: 12px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.item-tags-view {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.tag-pill-view {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(43, 43, 43, 0.1);
+  border: 1px solid rgba(43, 43, 43, 0.3);
+  border-radius: 10px;
+  font-size: 13px;
+  font-family: 'Patrick Hand', cursive;
+  color: #2b2b2b;
+  opacity: 0.8;
+  white-space: nowrap;
 }
 
 .item-title {
@@ -955,6 +1196,8 @@ body {
   margin: 0;
   line-height: 1.5;
   font-size: 22px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .item-description {
@@ -963,6 +1206,8 @@ body {
   margin: 0;
   opacity: 0.6;
   line-height: 1.5;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .share-dialog-overlay {
@@ -1327,6 +1572,16 @@ body {
 
   .checklist-item {
     padding: 0.75rem;
+  }
+
+  .item-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .item-tags-view {
+    margin-left: 0;
   }
 
   .filter-buttons {

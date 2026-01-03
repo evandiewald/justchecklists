@@ -21,6 +21,7 @@ export interface LocalItem {
   description?: string;
   order: number;
   completed?: boolean;
+  tags?: string[];
 }
 
 export class LocalStorageManager {

@@ -9,7 +9,8 @@ const schema = a.schema({
       createdAt: a.datetime(),
       updatedAt: a.datetime(),
       author: a.string().required(), // User ID
-      viewCount: a.integer().default(0),
+      useCount: a.integer().default(0),
+      lastUsedAt: a.datetime(),
       sections: a.hasMany('ChecklistSection', 'checklistId'),
     })
     .authorization((allow) => [
@@ -38,6 +39,7 @@ const schema = a.schema({
       description: a.string(),
       order: a.integer().required(),
       completed: a.boolean().default(false),
+      tags: a.string().array(),
       sectionId: a.id().required(),
       section: a.belongsTo('ChecklistSection', 'sectionId'),
     })
