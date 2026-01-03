@@ -896,19 +896,25 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   const handleClone = async () => {
     if (!checklist) return;
 
+    // Show loading state
+    setLoading(true);
+
     try {
-      // Clone checklist with all items set to uncompleted
+      // Clone checklist with NEW IDs for everything
+      const newChecklistId = LocalStorageManager.generateId();
       const clonedChecklist: LocalChecklist = {
         ...checklist,
-        id: LocalStorageManager.generateId(),
+        id: newChecklistId,
         title: `${checklist.title} (Copy)`,
         isPublic: false, // Clones are private by default
         createdAt: new Date().toISOString(),
         progress: {},
         sections: checklist.sections.map(section => ({
           ...section,
+          id: LocalStorageManager.generateId(), // Generate NEW section ID
           items: section.items.map(item => ({
             ...item,
+            id: LocalStorageManager.generateId(), // Generate NEW item ID
             completed: false, // Reset all items to uncompleted
           }))
         }))
@@ -917,6 +923,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
       if (user) {
         // Save to Amplify
         const newChecklist = await client.models.Checklist.create({
+          id: clonedChecklist.id, // Use our generated ID
           title: clonedChecklist.title,
           description: clonedChecklist.description || '',
           isPublic: false,
@@ -929,30 +936,29 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         }
 
         // Clone sections and items (batched for performance)
-        for (const section of checklist.sections) {
+        for (const section of clonedChecklist.sections) {
           const newSection = await client.models.ChecklistSection.create({
+            id: section.id, // Use our generated ID
             checklistId: newChecklist.data.id,
             title: section.title,
             order: section.order,
           });
 
-          if (newSection.data) {
-            const sectionId = newSection.data.id;
-            if (section.items.length > 0) {
-              // Create all items in parallel instead of sequentially
-              // Always set completed to false when copying
-              await Promise.all(
-                section.items.map(item =>
-                  client.models.ChecklistItem.create({
-                    sectionId: sectionId,
-                    title: item.title,
-                    description: item.description || '',
-                    order: item.order,
-                    completed: false,
-                  })
-                )
-              );
-            }
+          if (newSection.data && section.items.length > 0) {
+            // Create all items in parallel with our generated IDs
+            await Promise.all(
+              section.items.map(item =>
+                client.models.ChecklistItem.create({
+                  id: item.id, // Use our generated ID
+                  sectionId: section.id,
+                  title: item.title,
+                  description: item.description || '',
+                  order: item.order,
+                  completed: false,
+                  tags: item.tags || [],
+                })
+              )
+            );
           }
         }
 
@@ -970,16 +976,19 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           }
         }
 
+        setLoading(false);
         alert('Added to your lists!');
         onBack();
       } else {
         // Save to local storage
         LocalStorageManager.saveChecklist(clonedChecklist);
+        setLoading(false);
         alert('Added to your lists!');
         onBack();
       }
     } catch (error) {
       console.error('Error copying checklist:', error);
+      setLoading(false);
       alert('Error copying checklist. Please try again.');
     }
   };

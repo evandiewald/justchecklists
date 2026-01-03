@@ -194,12 +194,16 @@ body {
 .checklist-app {
   min-height: 100vh;
   background: transparent;
+  display: flex;
+  flex-direction: column;
 }
 
 .app-main {
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 24px 80px 96px;
+  flex: 1;
+  width: 100%;
 }
 
 /* Footer */
@@ -207,7 +211,8 @@ body {
   border-top: 1px solid #e5e7eb;
   background-color: #fefefe;
   padding: 20px 0;
-  margin-top: 40px;
+  margin-top: auto;
+  flex-shrink: 0;
 }
 
 .footer-content {
