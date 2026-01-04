@@ -35,25 +35,8 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
         authMode: user ? 'userPool' : 'apiKey',
       });
 
-      // Only load sections for list view (no items needed for display)
-      const checklistsWithSections = await Promise.all(
-        (result.data || []).map(async (checklist) => {
-          const sectionsResult = await client.models.ChecklistSection.list({
-            filter: { checklistId: { eq: checklist.id } },
-            authMode: user ? 'userPool' : 'apiKey',
-          });
-
-          return {
-            ...checklist,
-            sections: (sectionsResult.data || []).map(section => ({
-              ...section,
-              items: [] // Empty array for list view - items loaded on-demand when viewing
-            }))
-          };
-        })
-      );
-
-      setChecklists(checklistsWithSections);
+      // No need to load sections - just use checklist data directly
+      setChecklists(result.data || []);
     } catch (error) {
       console.error('Error fetching checklists:', error);
     } finally {

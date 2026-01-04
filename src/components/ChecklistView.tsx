@@ -134,6 +134,17 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           setChecklist(checklistData);
           setChecklistTitle(checklistData.title);
 
+          // Update lastUsedAt timestamp (non-blocking)
+          if (isOwner) {
+            client.models.Checklist.update({
+              id: checklistId,
+              lastUsedAt: new Date().toISOString(),
+            }).catch(error => {
+              console.error('Error updating lastUsedAt:', error);
+              // Don't fail the whole operation if this fails
+            });
+          }
+
           // Build progress from item completed fields
           // If viewing a template (not owner), show all items as uncompleted
           const userProgress: Record<string, boolean> = {};
@@ -1207,8 +1218,12 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         </div>
       </div>
 
-      <div className="checklist-sections">
-        {checklist.sections.map((section) => {
+      {(() => {
+        // Check if we're actively filtering
+        const isActivelyFiltering = selectedTags.length > 0 || searchQuery.trim().length > 0;
+
+        // Calculate visible items for each section
+        const sectionsWithVisibility = checklist.sections.map((section) => {
           const visibleItems = section.items.filter(item => {
             // Filter by completion status
             if (hideCompleted && progress[item.id]) return false;
@@ -1231,11 +1246,36 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
             return true;
           });
-          // For owners, show all sections even if empty (so they can add items)
-          // For non-owners, only show sections with visible items
-          if (visibleItems.length === 0 && !isOwner()) return null;
 
-          // Calculate if all VISIBLE items are completed (not all items in section)
+          return { section, visibleItems };
+        });
+
+        // Count hidden sections when actively filtering
+        const hiddenSectionsCount = isActivelyFiltering
+          ? sectionsWithVisibility.filter(({ visibleItems }) => visibleItems.length === 0).length
+          : 0;
+
+        return (
+          <>
+            {isActivelyFiltering && hiddenSectionsCount > 0 && (
+              <div className="hidden-sections-indicator">
+                {hiddenSectionsCount} section{hiddenSectionsCount !== 1 ? 's' : ''} hidden
+              </div>
+            )}
+
+            <div className="checklist-sections">
+              {sectionsWithVisibility.map(({ section, visibleItems }) => {
+                // Hide sections with no visible items when actively filtering
+                // For owners not filtering, show all sections (so they can add items)
+                if (visibleItems.length === 0) {
+                  if (isActivelyFiltering) return null;
+                  if (!isOwner()) return null;
+                }
+
+          // Calculate section progress based on VISIBLE items
+          const completedVisibleItems = visibleItems.filter(item => progress[item.id] === true).length;
+          const totalVisibleItems = visibleItems.length;
+          const sectionProgressPercent = totalVisibleItems > 0 ? (completedVisibleItems / totalVisibleItems) * 100 : 0;
           const allVisibleItemsCompleted = visibleItems.length > 0 && visibleItems.every(item => progress[item.id] === true);
 
           return (
@@ -1254,12 +1294,27 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                     autoFocus
                   />
                 ) : (
-                  <h2
-                    onClick={() => setEditingSectionId(section.id)}
-                    className="section-title-editable"
-                  >
-                    {section.title}
-                  </h2>
+                  <div className="section-title-with-progress">
+                    <h2
+                      onClick={() => setEditingSectionId(section.id)}
+                      className="section-title-editable"
+                    >
+                      {section.title}
+                      {totalVisibleItems > 0 && (
+                        <span className="section-progress-text">
+                          ({completedVisibleItems}/{totalVisibleItems})
+                        </span>
+                      )}
+                    </h2>
+                    {totalVisibleItems > 0 && (
+                      <div className="section-progress-bar">
+                        <div
+                          className="section-progress-fill"
+                          style={{ width: `${sectionProgressPercent}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
                 <div className="section-actions">
                   {visibleItems.length > 0 && (
@@ -1289,7 +1344,24 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
               </div>
             ) : (
               <div className="section-header-view">
-                <h2 className="section-title">{section.title}</h2>
+                <div className="section-title-with-progress">
+                  <h2 className="section-title">
+                    {section.title}
+                    {totalVisibleItems > 0 && (
+                      <span className="section-progress-text">
+                        ({completedVisibleItems}/{totalVisibleItems})
+                      </span>
+                    )}
+                  </h2>
+                  {totalVisibleItems > 0 && (
+                    <div className="section-progress-bar">
+                      <div
+                        className="section-progress-fill"
+                        style={{ width: `${sectionProgressPercent}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
                 {visibleItems.length > 0 && (
                   <button
                     onClick={() => checkAllInSection(section.id, visibleItems)}
@@ -1502,18 +1574,21 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
             </div>
           </div>
         );
-        })}
+              })}
 
-        {/* Add Section button - owner only */}
-        {isOwner() && (
-          <button
-            onClick={addSection}
-            className="add-section-button-inline"
-          >
-            + Add Section
-          </button>
-        )}
-      </div>
+              {/* Add Section button - owner only */}
+              {isOwner() && (
+                <button
+                  onClick={addSection}
+                  className="add-section-button-inline"
+                >
+                  + Add Section
+                </button>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {showShareDialog && checklist && (
         <div className="share-dialog-overlay" onClick={() => setShowShareDialog(false)}>

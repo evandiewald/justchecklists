@@ -253,9 +253,19 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
               )}
 
               <div className="card-stats">
-                {checklist.sections?.length > 0 && (
-                  <span>{checklist.sections.length} section{checklist.sections.length !== 1 ? 's' : ''}</span>
-                )}
+                {(() => {
+                  const lastUsed = (checklist as any).lastUsedAt || checklist.updatedAt;
+                  if (lastUsed) {
+                    const lastUsedDate = new Date(lastUsed);
+                    const now = new Date();
+                    const hoursSinceLastUse = (now.getTime() - lastUsedDate.getTime()) / (1000 * 60 * 60);
+
+                    if (hoursSinceLastUse < 24) {
+                      return <span className="used-recently-badge">Used Recently</span>;
+                    }
+                  }
+                  return null;
+                })()}
               </div>
             </div>
           ))}
