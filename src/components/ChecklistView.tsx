@@ -2,20 +2,28 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { LocalStorageManager, LocalChecklist } from '../utils/localStorage';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
+import { useParams, useNavigate } from 'react-router-dom';
 
 const client = generateClient<Schema>();
 
 interface ChecklistViewProps {
-  checklistId: string;
   onBack: () => void;
   user: any;
 }
 
 export const ChecklistView: React.FC<ChecklistViewProps> = ({
-  checklistId,
   onBack,
   user,
 }) => {
+  const { checklistId } = useParams<{ checklistId: string }>();
+  const navigate = useNavigate();
+
+  // Redirect if no checklistId in URL
+  if (!checklistId) {
+    navigate('/checklists');
+    return null;
+  }
+
   const [checklist, setChecklist] = useState<LocalChecklist | null>(null);
   const [progress, setProgress] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);

@@ -4,6 +4,7 @@ import type { Schema } from '../../amplify/data/resource';
 import { ChecklistList } from './ChecklistList';
 import { ChecklistView } from './ChecklistView';
 import { LocalStorageManager } from '../utils/localStorage';
+import { Routes, Route, useNavigate } from 'react-router-dom';
 
 const client = generateClient<Schema>();
 
@@ -12,13 +13,10 @@ interface ChecklistAppProps {
   signOut: (() => void) | null | undefined;
 }
 
-type View = 'home' | 'view';
-
 export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => {
-  const [currentView, setCurrentView] = useState<View>('home');
-  const [selectedChecklistId, setSelectedChecklistId] = useState<string | null>(null);
   const [checklists, setChecklists] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (user) {
@@ -74,8 +72,7 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
           order: 0
         });
 
-        setSelectedChecklistId(newChecklistId);
-        setCurrentView('view'); // Opens in ChecklistView
+        navigate(`/checklists/${newChecklistId}`);
       } catch (error) {
         console.error('Error creating checklist:', error);
       }
@@ -96,19 +93,16 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
         progress: {}
       };
       LocalStorageManager.saveChecklist(blankChecklist);
-      setSelectedChecklistId(newChecklistId);
-      setCurrentView('view');
+      navigate(`/checklists/${newChecklistId}`);
     }
   };
 
   const handleViewChecklist = (id: string) => {
-    setSelectedChecklistId(id);
-    setCurrentView('view');
+    navigate(`/checklists/${id}`);
   };
 
   const handleBackToHome = () => {
-    setCurrentView('home');
-    setSelectedChecklistId(null);
+    navigate('/checklists');
     if (user) {
       fetchChecklists();
     } else {
@@ -121,7 +115,7 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
     <header className="app-header">
       <div className="header-content">
         <div className="app-title-wrapper">
-          <h1 className="app-title" onClick={() => setCurrentView('home')}>just<strong>checklists</strong></h1>
+          <h1 className="app-title" onClick={() => navigate('/checklists')}>just<strong>checklists</strong></h1>
           <span className="beta-badge">beta</span>
         </div>
         <nav className="header-nav">
@@ -137,39 +131,6 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
       </div>
     </header>
   );
-
-  const renderContent = () => {
-    if (loading) {
-      return (
-        <div className="loading">
-          <div className="spinner"></div>
-          <p>Loading...</p>
-        </div>
-      );
-    }
-
-    switch (currentView) {
-      case 'home':
-        return (
-          <ChecklistList
-            checklists={checklists}
-            onView={handleViewChecklist}
-            onCreate={handleCreateChecklist}
-            user={user}
-          />
-        );
-      case 'view':
-        return (
-          <ChecklistView
-            checklistId={selectedChecklistId!}
-            onBack={handleBackToHome}
-            user={user}
-          />
-        );
-      default:
-        return null;
-    }
-  };
 
   const renderFooter = () => (
     <footer className="app-footer">
@@ -203,11 +164,30 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
     </footer>
   );
 
+  if (loading) {
+    return (
+      <div className="checklist-app">
+        {renderHeader()}
+        <main className="app-main">
+          <div className="loading">
+            <div className="spinner"></div>
+            <p>Loading...</p>
+          </div>
+        </main>
+        {renderFooter()}
+      </div>
+    );
+  }
+
   return (
     <div className="checklist-app">
       {renderHeader()}
       <main className="app-main">
-        {renderContent()}
+        <Routes>
+          <Route path="/" element={<ChecklistList checklists={checklists} onView={handleViewChecklist} onCreate={handleCreateChecklist} user={user} />} />
+          <Route path="/checklists" element={<ChecklistList checklists={checklists} onView={handleViewChecklist} onCreate={handleCreateChecklist} user={user} />} />
+          <Route path="/checklists/:checklistId" element={<ChecklistView onBack={handleBackToHome} user={user} />} />
+        </Routes>
       </main>
       {renderFooter()}
     </div>
