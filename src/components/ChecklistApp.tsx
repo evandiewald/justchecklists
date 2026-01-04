@@ -138,14 +138,15 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
         <p className="copyright">© {new Date().getFullYear()} Evan Diewald</p>
         <div className="footer-links">
           <a
-            href="https://buymeacoffee.com/evandiewald"
+            href="https://github.com/evandiewald/justchecklists/issues/new"
             target="_blank"
             rel="noopener noreferrer"
             className="footer-icon-link"
-            title="Buy me a coffee"
+            title="Report a Bug"
           >
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-              <path d="M20 3H4v10c0 2.21 1.79 4 4 4h6c2.21 0 4-1.79 4-4v-3h2c1.11 0 2-.89 2-2V5c0-1.11-.89-2-2-2zm0 5h-2V5h2v3zM4 19h16v2H4v-2z"/>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9.195 5.635A6.5 6.5 0 0 0 5.5 11.5v5a6.5 6.5 0 1 0 13 0v-5a6.5 6.5 0 0 0-9.305-5.865"/>
+              <path d="M3 10h2.5m13 0H21M3 18h2.5m13 0H21M9 5.4L7 3m8 2.4L17 3M5.5 16.5v-5a6.5 6.5 0 0 1 13 0v5a6.5 6.5 0 1 1-13 0ZM10 11h4m-4 6h4"/>
             </svg>
           </a>
           <a
