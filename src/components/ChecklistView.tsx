@@ -63,14 +63,22 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         // Load from Amplify
         const result = await client.models.Checklist.get({ id: checklistId });
         if (result.data) {
-          // Load sections
-          const sectionsResult = await client.models.ChecklistSection.list({
-            filter: { checklistId: { eq: checklistId } }
-          });
+          // Load all sections with pagination
+          let allSections: any[] = [];
+          let sectionToken: string | null | undefined = undefined;
+
+          do {
+            const sectionsResult: any = await client.models.ChecklistSection.list({
+              filter: { checklistId: { eq: checklistId } },
+              nextToken: sectionToken as any,
+            });
+            allSections = allSections.concat(sectionsResult.data || []);
+            sectionToken = sectionsResult.nextToken;
+          } while (sectionToken);
 
           // Load all sections with their items
           const sectionsWithItems = await Promise.all(
-            (sectionsResult.data || []).map(async (section) => {
+            allSections.map(async (section) => {
               // Fetch all items with pagination support
               let allItems: any[] = [];
               let nextToken: string | null | undefined = undefined;
@@ -298,14 +306,22 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
     try {
       if (user) {
-        // Delete from Amplify
-        const sectionsResult = await client.models.ChecklistSection.list({
-          filter: { checklistId: { eq: checklistId } }
-        });
+        // Delete from Amplify - fetch all sections with pagination
+        let allSections: any[] = [];
+        let sectionToken: string | null | undefined = undefined;
+
+        do {
+          const sectionsResult: any = await client.models.ChecklistSection.list({
+            filter: { checklistId: { eq: checklistId } },
+            nextToken: sectionToken as any,
+          });
+          allSections = allSections.concat(sectionsResult.data || []);
+          sectionToken = sectionsResult.nextToken;
+        } while (sectionToken);
 
         // Delete all sections and items in parallel
         await Promise.all(
-          (sectionsResult.data || []).map(async (section) => {
+          allSections.map(async (section) => {
             // Fetch all items with pagination
             let allItems: any[] = [];
             let nextToken: string | null | undefined = undefined;
