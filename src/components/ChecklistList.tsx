@@ -94,13 +94,22 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
         // Delete all sections and items in parallel
         await Promise.all(
           (sectionsResult.data || []).map(async (section) => {
-            const itemsResult = await client.models.ChecklistItem.list({
-              filter: { sectionId: { eq: section.id } }
-            });
+            // Fetch all items with pagination
+            let allItems: any[] = [];
+            let nextToken: string | null | undefined = undefined;
+
+            do {
+              const itemsResult: any = await client.models.ChecklistItem.list({
+                filter: { sectionId: { eq: section.id } },
+                nextToken: nextToken as any,
+              });
+              allItems = allItems.concat(itemsResult.data || []);
+              nextToken = itemsResult.nextToken;
+            } while (nextToken);
 
             // Delete all items in this section in parallel
             await Promise.all(
-              (itemsResult.data || []).map(item =>
+              allItems.map(item =>
                 client.models.ChecklistItem.delete({ id: item.id })
               )
             );

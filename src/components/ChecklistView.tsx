@@ -71,16 +71,26 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           // Load all sections with their items
           const sectionsWithItems = await Promise.all(
             (sectionsResult.data || []).map(async (section) => {
-              const itemsResult = await client.models.ChecklistItem.list({
-                filter: { sectionId: { eq: section.id } },
-                limit: 1000,
-              });
+              // Fetch all items with pagination support
+              let allItems: any[] = [];
+              let nextToken: string | null | undefined = undefined;
+
+              do {
+                const itemsResult: any = await client.models.ChecklistItem.list({
+                  filter: { sectionId: { eq: section.id } },
+                  limit: 1000,
+                  nextToken: nextToken as any,
+                });
+
+                allItems = allItems.concat(itemsResult.data || []);
+                nextToken = itemsResult.nextToken;
+              } while (nextToken);
 
               return {
                 id: section.id,
                 title: section.title,
                 order: section.order,
-                items: (itemsResult.data || [])
+                items: allItems
                   .sort((a, b) => a.order - b.order)
                   .map(item => ({
                     id: item.id,
@@ -88,7 +98,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                     description: item.description || '',
                     order: item.order,
                     completed: item.completed || false,
-                    tags: (item.tags || []).filter((tag): tag is string => tag !== null)
+                    tags: (item.tags || []).filter((tag: any): tag is string => tag !== null)
                   }))
               };
             })
@@ -296,13 +306,22 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         // Delete all sections and items in parallel
         await Promise.all(
           (sectionsResult.data || []).map(async (section) => {
-            const itemsResult = await client.models.ChecklistItem.list({
-              filter: { sectionId: { eq: section.id } }
-            });
+            // Fetch all items with pagination
+            let allItems: any[] = [];
+            let nextToken: string | null | undefined = undefined;
+
+            do {
+              const itemsResult: any = await client.models.ChecklistItem.list({
+                filter: { sectionId: { eq: section.id } },
+                nextToken: nextToken as any,
+              });
+              allItems = allItems.concat(itemsResult.data || []);
+              nextToken = itemsResult.nextToken;
+            } while (nextToken);
 
             // Delete all items in this section in parallel
             await Promise.all(
-              (itemsResult.data || []).map(item =>
+              allItems.map(item =>
                 client.models.ChecklistItem.delete({ id: item.id })
               )
             );
@@ -485,13 +504,21 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     setSaveStatus('saving');
     try {
       if (user) {
-        // Delete all items first, then section
-        const itemsResult = await client.models.ChecklistItem.list({
-          filter: { sectionId: { eq: sectionId } }
-        });
+        // Delete all items first with pagination, then section
+        let allItems: any[] = [];
+        let nextToken: string | null | undefined = undefined;
+
+        do {
+          const itemsResult: any = await client.models.ChecklistItem.list({
+            filter: { sectionId: { eq: sectionId } },
+            nextToken: nextToken as any,
+          });
+          allItems = allItems.concat(itemsResult.data || []);
+          nextToken = itemsResult.nextToken;
+        } while (nextToken);
 
         await Promise.all(
-          (itemsResult.data || []).map(item =>
+          allItems.map(item =>
             client.models.ChecklistItem.delete({ id: item.id })
           )
         );
@@ -900,13 +927,16 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     setLoading(true);
 
     try {
-      // Clone checklist with NEW IDs for everything
+      // Clone checklist with NEW IDs for everything and current user as author
       const newChecklistId = LocalStorageManager.generateId();
+      const newAuthor = user ? (user.username || user.userId) : undefined;
+
       const clonedChecklist: LocalChecklist = {
         ...checklist,
         id: newChecklistId,
         title: `${checklist.title} (Copy)`,
         isPublic: false, // Clones are private by default
+        author: newAuthor, // Set current user as author
         createdAt: new Date().toISOString(),
         progress: {},
         sections: checklist.sections.map(section => ({
@@ -921,13 +951,13 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
       };
 
       if (user) {
-        // Save to Amplify
+        // Save to Amplify with current user as author
         const newChecklist = await client.models.Checklist.create({
           id: clonedChecklist.id, // Use our generated ID
           title: clonedChecklist.title,
           description: clonedChecklist.description || '',
           isPublic: false,
-          author: user.username || user.userId,
+          author: newAuthor, // Current user is now the owner
           useCount: 0,
         });
 

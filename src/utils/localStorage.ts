@@ -3,6 +3,7 @@ export interface LocalChecklist {
   title: string;
   description?: string;
   isPublic: boolean;
+  author?: string;
   createdAt: string;
   sections: LocalSection[];
   progress: Record<string, boolean>;
