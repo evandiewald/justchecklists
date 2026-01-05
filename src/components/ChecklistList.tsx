@@ -18,15 +18,38 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
   onCreate,
   user,
 }) => {
-  const [filter, setFilter] = useState<'mine' | 'shared'>('mine');
+  const [filter, setFilter] = useState<'mine' | 'templates'>('mine');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'updated' | 'alphabetical' | 'trending' | 'mostUsed'>('updated');
+  const [userShares, setUserShares] = useState<any[]>([]);
+
+  // Load user shares
+  useEffect(() => {
+    const loadShares = async () => {
+      if (!user) {
+        setUserShares([]);
+        return;
+      }
+
+      try {
+        const result = await client.models.ChecklistShare.list({
+          filter: { userId: { eq: user.username || user.userId } },
+        });
+        setUserShares(result.data || []);
+      } catch (error) {
+        console.error('Error loading user shares:', error);
+        setUserShares([]);
+      }
+    };
+
+    loadShares();
+  }, [user]);
 
   // Reset sort when filter changes
   useEffect(() => {
     if (filter === 'mine' && (sortBy === 'trending' || sortBy === 'mostUsed')) {
       setSortBy('updated');
-    } else if (filter === 'shared' && sortBy === 'updated') {
+    } else if (filter === 'templates' && sortBy === 'updated') {
       setSortBy('trending');
     }
   }, [filter]);
@@ -36,11 +59,16 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
       // Filter by view
       if (filter === 'mine') {
         if (!user) return true; // Local storage, show all
-        return checklist.author === user.userId || checklist.author === user.username;
+        // Show lists I own OR lists shared with me
+        const isOwnList = checklist.author === user.userId || checklist.author === user.username;
+        const hasShare = userShares.some(
+          share => share.checklistId === checklist.id
+        );
+        return isOwnList || hasShare;
       }
-      if (filter === 'shared') {
-        // Shared lists are public lists created by OTHER users
-        if (!user) return false; // No shared lists in local storage mode
+      if (filter === 'templates') {
+        // Public templates created by OTHER users
+        if (!user) return false; // No templates in local storage mode
         const isOwnList = checklist.author === user.userId || checklist.author === user.username;
         return checklist.isPublic && !isOwnList;
       }
@@ -149,7 +177,6 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
   return (
     <div className="checklist-list">
       <div className="list-header">
-        <h2>Checklists</h2>
         <div className="list-controls">
           <div className="filter-buttons">
             <button
@@ -159,10 +186,10 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
               My Lists
             </button>
             <button
-              className={filter === 'shared' ? 'active' : ''}
-              onClick={() => setFilter('shared')}
+              className={filter === 'templates' ? 'active' : ''}
+              onClick={() => setFilter('templates')}
             >
-              Shared Templates
+              Public Lists
             </button>
           </div>
           <input
@@ -200,8 +227,8 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
               <h2>No Checklists Yet</h2>
               <p>
                 Create your first checklist or start from a{' '}
-                <span className="shared-template-link" onClick={() => setFilter('shared')}>
-                  shared template
+                <span className="shared-template-link" onClick={() => setFilter('templates')}>
+                  public list
                 </span>{' '}
                 to get started!
               </p>
@@ -211,8 +238,8 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
             </>
           ) : (
             <>
-              <h2>No Shared Templates</h2>
-              <p>There are no public templates available yet. Check back later or create your own!</p>
+              <h2>No Public Lists</h2>
+              <p>There are no public lists available yet. Check back later or create your own!</p>
             </>
           )}
         </div>
@@ -227,14 +254,47 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
               <div className="card-header">
                 <h3>
                   {checklist.title}
-                  {checklist.isPublic && (
-                    <span
-                      className="privacy-icon shared-badge"
-                      title="Shared as public template"
-                    >
-                      <span className="material-symbols-outlined">public</span>
-                    </span>
-                  )}
+                  {(() => {
+                    // Check if this is a shared list (user is not the owner)
+                    const isOwnList = !user || checklist.author === user.userId || checklist.author === user.username;
+                    const hasShare = userShares.some(share => share.checklistId === checklist.id);
+                    const isSharedWithMe = !isOwnList && hasShare;
+
+                    if (isSharedWithMe) {
+                      return (
+                        <span
+                          className="privacy-icon shared-badge"
+                          title="Shared with you"
+                        >
+                          <span className="material-symbols-outlined">person_add</span>
+                        </span>
+                      );
+                    }
+
+                    if (checklist.isPublic) {
+                      return (
+                        <span
+                          className="privacy-icon shared-badge"
+                          title="Public list"
+                        >
+                          <span className="material-symbols-outlined">public</span>
+                        </span>
+                      );
+                    }
+
+                    if ((checklist as any).isPrivatelyShared) {
+                      return (
+                        <span
+                          className="privacy-icon shared-badge"
+                          title="Shared with others"
+                        >
+                          <span className="material-symbols-outlined">group</span>
+                        </span>
+                      );
+                    }
+
+                    return null;
+                  })()}
                 </h3>
                 <div className="card-actions">
                   {isOwner(checklist) && (

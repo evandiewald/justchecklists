@@ -3,6 +3,7 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import { ChecklistList } from './ChecklistList';
 import { ChecklistView } from './ChecklistView';
+import { AcceptSharePage } from './AcceptSharePage';
 import { Footer } from './Footer';
 import { LocalStorageManager } from '../utils/localStorage';
 import { Routes, Route, useNavigate } from 'react-router-dom';
@@ -57,11 +58,13 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
     if (user) {
       // Create blank checklist in Amplify with client-generated IDs
       try {
+        const authorId = user.username || user.userId;
+
         await client.models.Checklist.create({
           id: newChecklistId,
           title: 'New Checklist',
           description: '',
-          author: user.username || user.userId,
+          author: authorId,
           useCount: 0
         });
 
@@ -71,6 +74,17 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
           checklistId: newChecklistId,
           title: 'Section 1',
           order: 0
+        });
+
+        // Create OWNER share for the creator
+        const userEmail = user.attributes?.email || user.signInDetails?.loginId || authorId;
+        await client.models.ChecklistShare.create({
+          checklistId: newChecklistId,
+          userId: authorId,
+          email: userEmail,
+          role: 'OWNER',
+          sharedBy: authorId,
+          createdAt: new Date().toISOString(),
         });
 
         navigate(`/checklists/${newChecklistId}`);
@@ -156,6 +170,7 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
           <Route path="/" element={<ChecklistList checklists={checklists} onView={handleViewChecklist} onCreate={handleCreateChecklist} user={user} />} />
           <Route path="/checklists" element={<ChecklistList checklists={checklists} onView={handleViewChecklist} onCreate={handleCreateChecklist} user={user} />} />
           <Route path="/checklists/:checklistId" element={<ChecklistView onBack={handleBackToHome} user={user} />} />
+          <Route path="/share/:token" element={<AcceptSharePage user={user} />} />
         </Routes>
       </main>
       <Footer />

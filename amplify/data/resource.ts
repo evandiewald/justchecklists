@@ -11,11 +11,13 @@ const schema = a.schema({
       author: a.string().required(), // User ID
       useCount: a.integer().default(0),
       lastUsedAt: a.datetime(),
+      isPrivatelyShared: a.boolean().default(false),
+      shareCount: a.integer().default(0),
       sections: a.hasMany('ChecklistSection', 'checklistId'),
+      shares: a.hasMany('ChecklistShare', 'checklistId'),
     })
     .authorization((allow) => [
-      allow.owner(),
-      allow.authenticated().to(['read']),
+      allow.authenticated(),
       allow.publicApiKey().to(['read']),
     ]),
 
@@ -28,8 +30,7 @@ const schema = a.schema({
       items: a.hasMany('ChecklistItem', 'sectionId'),
     })
     .authorization((allow) => [
-      allow.owner(),
-      allow.authenticated().to(['read']),
+      allow.authenticated(),
       allow.publicApiKey().to(['read']),
     ]),
 
@@ -44,9 +45,25 @@ const schema = a.schema({
       section: a.belongsTo('ChecklistSection', 'sectionId'),
     })
     .authorization((allow) => [
-      allow.owner(),
-      allow.authenticated().to(['read']),
+      allow.authenticated(),
       allow.publicApiKey().to(['read']),
+    ]),
+
+  ChecklistShare: a
+    .model({
+      checklistId: a.id().required(),
+      checklist: a.belongsTo('Checklist', 'checklistId'),
+      userId: a.string().required(), // cognito username
+      email: a.string(), // user's email address for display
+      role: a.enum(['OWNER', 'EDITOR', 'VIEWER']),
+      shareToken: a.string(), // For link-based sharing
+      sharedBy: a.string(), // cognito username
+      createdAt: a.datetime(),
+      expiresAt: a.datetime(), // Optional expiration
+    })
+    .identifier(['checklistId', 'userId'])
+    .authorization((allow) => [
+      allow.authenticated(),
     ]),
 });
 

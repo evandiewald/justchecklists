@@ -97,7 +97,7 @@ body {
 /* App Header */
 .app-header {
   background: transparent;
-  padding: 40px 0 32px 0;
+  padding: 40px 0 2px 0;
   position: relative;
   z-index: 100;
 }
@@ -964,13 +964,14 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
 }
 
 .view-actions {
   display: flex;
   gap: 12px;
   font-size: 20px;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .clone-button {
@@ -990,15 +991,14 @@ body {
 }
 
 .back-button {
-  display: inline-block;
-  background: transparent;
-  border: none;
-  color: #2b2b2b;
+  display: inline-block !important;
+  background: transparent !important;
+  border: none !important;
+  color: #2b2b2b !important;
   cursor: pointer;
-  text-decoration: none;
-  font-size: 20px;
+  text-decoration: none !important;
+  font-size: 20px !important;
   font-family: 'Patrick Hand', cursive;
-  padding: 0;
   opacity: 0.8;
   transition: opacity 0.2s;
 }
@@ -1007,14 +1007,52 @@ body {
   opacity: 1;
 }
 
+.scroll-to-top {
+  position: fixed;
+  bottom: 32px;
+  right: 32px;
+  width: 56px;
+  height: 56px;
+  background: #2b2b2b;
+  color: #fef3c7;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s ease;
+  z-index: 1000;
+}
+
+.scroll-to-top:hover {
+  background: #1a1a1a;
+  transform: translateY(-4px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.scroll-to-top .material-symbols-outlined {
+  font-size: 28px;
+}
+
+.title-actions-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+
 .checklist-info h1 {
   color: #2b2b2b;
-  margin: 0 0 4px 0;
+  margin: 0;
   font-size: 32px;
   font-weight: 400;
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 1;
 }
 
 .privacy-icon {
@@ -1035,6 +1073,38 @@ body {
   margin: 0 0 16px 0;
   font-size: 18px;
   line-height: 1.6;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.checklist-description.editable-text:hover {
+  opacity: 1;
+}
+
+.checklist-description.placeholder {
+  font-style: italic;
+  opacity: 0.5;
+}
+
+.checklist-description-input {
+  width: 100%;
+  color: #2b2b2b;
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  line-height: 1.6;
+  font-family: 'Patrick Hand', cursive;
+  border: 2px solid #2b2b2b;
+  border-radius: 4px;
+  padding: 8px;
+  resize: vertical;
+  min-height: 60px;
+  box-sizing: border-box;
+}
+
+.checklist-description-input:focus {
+  outline: none;
+  border-color: #fef3c7;
+  background-color: #fffef5;
 }
 
 .privacy-badge-container {
@@ -1638,6 +1708,7 @@ body {
 
 /* Inline Editing - Checklist Title */
 .checklist-title-input {
+  flex: 1;
   width: 100%;
   padding: 4px 0;
   border: none;

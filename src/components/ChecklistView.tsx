@@ -1,8 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { LocalStorageManager, LocalChecklist } from '../utils/localStorage';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useRealtimeSync, trackMutation } from '../hooks/useRealtimeSync';
+import { ShareLinkManager } from '../utils/shareLinks';
+import { ShareDialog } from './ShareDialog';
 
 const client = generateClient<Schema>();
 
@@ -32,14 +35,22 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [showShareDialog, setShowShareDialog] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [showScrollToTop, setShowScrollToTop] = useState(false);
+
+  // User permissions
+  const [userRole, setUserRole] = useState<'OWNER' | 'EDITOR' | 'VIEWER' | null>(null);
+  const [hasShare, setHasShare] = useState<boolean>(true); // Track if user has ChecklistShare (vs public template viewer)
+  const hasShareRef = useRef<boolean>(true); // Ref for accessing in callbacks
 
   // Inline editing state
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [editingChecklistTitle, setEditingChecklistTitle] = useState(false);
+  const [editingChecklistDescription, setEditingChecklistDescription] = useState(false);
 
   // Checklist-level edits
   const [checklistTitle, setChecklistTitle] = useState('');
+  const [checklistDescription, setChecklistDescription] = useState('');
 
   // Tag management (from ChecklistEditor)
   const [tagInput, setTagInput] = useState<Record<string, string>>({});
@@ -57,12 +68,217 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     loadChecklist();
   }, [checklistId]);
 
+  // Fetch user role for permissions (only when checklistId or user changes, NOT when checklist changes)
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      if (!user || !checklistId) {
+        setUserRole('OWNER'); // Local storage mode, user owns everything
+        return;
+      }
+
+      try {
+        const role = await ShareLinkManager.getUserRole(checklistId, user);
+        console.log('Fetched user role:', role, 'for user:', user.username || user.userId);
+
+        if (role) {
+          setUserRole(role);
+        } else {
+          // No share found - check if user is the original author as fallback
+          console.log('No share found, checking if user is author');
+          const checklistResult = await client.models.Checklist.get({ id: checklistId });
+          if (checklistResult.data) {
+            const author = checklistResult.data.author;
+            const isAuthor =
+              author === user.userId ||
+              author === user.username ||
+              author === user.signInDetails?.loginId ||
+              author === (user.attributes && user.attributes.email);
+
+            console.log('Author check:', { author, userId: user.userId, username: user.username, isAuthor });
+            setUserRole(isAuthor ? 'OWNER' : 'VIEWER');
+          } else {
+            setUserRole('VIEWER');
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching user role:', error);
+        setUserRole('VIEWER');
+      }
+    };
+
+    fetchUserRole();
+  }, [checklistId, user]); // Removed checklist dependency to prevent loop
+
+  // Real-time sync with granular updates (no page reload)
+  const realtimeCallbacks = useMemo(() => ({
+    onItemCreate: (item: any) => {
+      setChecklist(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          sections: prev.sections.map(section => {
+            if (section.id === item.sectionId) {
+              // Add the new item to the section
+              const newItem = {
+                id: item.id,
+                title: item.title,
+                description: item.description,
+                order: item.order,
+                // Public template viewers always see unchecked
+                completed: hasShareRef.current ? item.completed : false,
+                tags: item.tags || [],
+              };
+              return {
+                ...section,
+                items: [...section.items, newItem].sort((a, b) => a.order - b.order),
+              };
+            }
+            return section;
+          }),
+        };
+      });
+    },
+
+    onItemUpdate: (item: any) => {
+      setChecklist(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          sections: prev.sections.map(section => ({
+            ...section,
+            items: section.items.map(existingItem => {
+              if (existingItem.id === item.id) {
+                return {
+                  ...existingItem,
+                  title: item.title,
+                  description: item.description,
+                  order: item.order,
+                  // Only update completed state if user has a share
+                  completed: hasShareRef.current ? item.completed : existingItem.completed,
+                  tags: item.tags || [],
+                };
+              }
+              return existingItem;
+            }).sort((a, b) => a.order - b.order), // Re-sort items after update
+          })),
+        };
+      });
+
+      // Update progress if completed state changed AND user has a share
+      // (public template viewers don't see completion state updates)
+      if (item.completed !== undefined && hasShareRef.current) {
+        setProgress(prev => ({ ...prev, [item.id]: item.completed }));
+      }
+    },
+
+    onItemDelete: (itemId: string) => {
+      setChecklist(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          sections: prev.sections.map(section => ({
+            ...section,
+            items: section.items.filter(item => item.id !== itemId),
+          })),
+        };
+      });
+
+      // Remove from progress
+      setProgress(prev => {
+        const newProgress = { ...prev };
+        delete newProgress[itemId];
+        return newProgress;
+      });
+    },
+
+    onSectionCreate: (section: any) => {
+      setChecklist(prev => {
+        if (!prev) return prev;
+        const newSection = {
+          id: section.id,
+          title: section.title,
+          order: section.order,
+          items: [],
+        };
+        return {
+          ...prev,
+          sections: [...prev.sections, newSection].sort((a, b) => a.order - b.order),
+        };
+      });
+    },
+
+    onSectionUpdate: (section: any) => {
+      setChecklist(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          sections: prev.sections.map(existingSection => {
+            if (existingSection.id === section.id) {
+              return {
+                ...existingSection,
+                title: section.title,
+                order: section.order,
+              };
+            }
+            return existingSection;
+          }).sort((a, b) => a.order - b.order),
+        };
+      });
+    },
+
+    onSectionDelete: (sectionId: string) => {
+      setChecklist(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          sections: prev.sections.filter(section => section.id !== sectionId),
+        };
+      });
+    },
+
+    onChecklistUpdate: (updatedChecklist: any) => {
+      setChecklist(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          title: updatedChecklist.title || prev.title,
+          description: updatedChecklist.description !== undefined ? updatedChecklist.description : prev.description,
+          isPublic: updatedChecklist.isPublic ?? prev.isPublic,
+        };
+      });
+
+      // Update the local state variables for title and description
+      if (updatedChecklist.title) {
+        setChecklistTitle(updatedChecklist.title);
+      }
+      if (updatedChecklist.description !== undefined) {
+        setChecklistDescription(updatedChecklist.description);
+      }
+    },
+  }), []);
+
+  useRealtimeSync(checklistId, realtimeCallbacks);
+
   // Cleanup debounce timers on unmount
   useEffect(() => {
     return () => {
       Object.values(debounceTimers.current).forEach(timer => clearTimeout(timer));
     };
   }, []);
+
+  // Track scroll position for "scroll to top" button
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollToTop(window.scrollY > 300);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const loadChecklist = async () => {
     setLoading(true);
@@ -141,6 +357,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
           setChecklist(checklistData);
           setChecklistTitle(checklistData.title);
+          setChecklistDescription(checklistData.description || '');
 
           // Update lastUsedAt timestamp (non-blocking)
           if (isOwner) {
@@ -154,11 +371,31 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           }
 
           // Build progress from item completed fields
-          // If viewing a template (not owner), show all items as uncompleted
+          // Check if user has a ChecklistShare (OWNER/EDITOR/VIEWER role)
+          // If they do, show actual completion state
+          // If they don't (viewing public template), show all as uncompleted
+          let userHasShare = isOwner; // Owner always has access
+          if (!userHasShare) {
+            try {
+              const shareResult = await client.models.ChecklistShare.get({
+                checklistId: checklistId,
+                userId: user.username || user.userId,
+              });
+              userHasShare = !!shareResult.data;
+            } catch (error) {
+              // No share found
+              userHasShare = false;
+            }
+          }
+          setHasShare(userHasShare);
+          hasShareRef.current = userHasShare;
+
           const userProgress: Record<string, boolean> = {};
           sectionsWithItems.forEach(section => {
             section.items.forEach(item => {
-              userProgress[item.id] = isOwner ? (item.completed || false) : false;
+              // If user has a share (OWNER/EDITOR/VIEWER), show actual state
+              // Otherwise (public template), show unchecked
+              userProgress[item.id] = userHasShare ? (item.completed || false) : false;
             });
           });
 
@@ -170,6 +407,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         if (localChecklist) {
           setChecklist(localChecklist);
           setChecklistTitle(localChecklist.title);
+          setChecklistDescription(localChecklist.description || '');
           const localProgress = LocalStorageManager.getProgress(checklistId);
           setProgress(localProgress);
         }
@@ -205,6 +443,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     if (user) {
       // Update item's completed field in Amplify
       try {
+        trackMutation('item', itemId);
         await client.models.ChecklistItem.update({
           id: itemId,
           completed: newCompleted
@@ -421,12 +660,36 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     // Debounced save
     debouncedSave('checklist-title', async () => {
       if (user) {
+        trackMutation('checklist', checklistId);
         await client.models.Checklist.update({
           id: checklistId,
           title: newTitle.trim()
         });
-      } else {
+      } else{
         const updated = { ...checklist, title: newTitle.trim() };
+        LocalStorageManager.saveChecklist(updated);
+      }
+    });
+  };
+
+  const updateChecklistDescription = async (newDescription: string) => {
+    if (!checklist) return;
+
+    // Optimistic update
+    setPreviousState(checklist);
+    setChecklist({ ...checklist, description: newDescription });
+    setChecklistDescription(newDescription);
+
+    // Debounced save
+    debouncedSave('checklist-description', async () => {
+      if (user) {
+        trackMutation('checklist', checklistId);
+        await client.models.Checklist.update({
+          id: checklistId,
+          description: newDescription.trim()
+        });
+      } else{
+        const updated = { ...checklist, description: newDescription.trim() };
         LocalStorageManager.saveChecklist(updated);
       }
     });
@@ -456,6 +719,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     try {
       if (user) {
         // Use our generated ID so it matches what's in the UI
+        trackMutation('section', newSection.id);
         await client.models.ChecklistSection.create({
           id: newSection.id,
           checklistId: checklistId,
@@ -497,11 +761,12 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     // Debounced save
     debouncedSave(`section-${sectionId}`, async () => {
       if (user) {
+        trackMutation('section', sectionId);
         await client.models.ChecklistSection.update({
           id: sectionId,
           title: newTitle.trim()
         });
-      } else {
+      } else{
         const updated = {
           ...checklist,
           sections: checklist.sections.map(s =>
@@ -558,6 +823,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           )
         );
 
+        trackMutation('section', sectionId);
         await client.models.ChecklistSection.delete({ id: sectionId });
       } else {
         LocalStorageManager.saveChecklist(updatedChecklist);
@@ -606,6 +872,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     try {
       if (user) {
         // Use our generated ID so it matches what's in the UI
+        trackMutation('item', newItem.id);
         await client.models.ChecklistItem.create({
           id: newItem.id,
           sectionId: sectionId,
@@ -669,6 +936,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     debouncedSave(`item-${itemId}`, async () => {
       if (user) {
         // CRITICAL: Preserve completed field!
+        trackMutation('item', itemId);
         await client.models.ChecklistItem.update({
           id: itemId,
           title: updates.title !== undefined ? updates.title.trim() : currentItem.title,
@@ -676,7 +944,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           tags: updates.tags || currentItem.tags || [],
           // completed is intentionally NOT updated here - only toggleItem updates it
         });
-      } else {
+      } else{
         LocalStorageManager.saveChecklist(updatedChecklist);
       }
     });
@@ -711,8 +979,9 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     setSaveStatus('saving');
     try {
       if (user) {
+        trackMutation('item', itemId);
         await client.models.ChecklistItem.delete({ id: itemId });
-      } else {
+      } else{
         LocalStorageManager.saveChecklist(updatedChecklist);
       }
       setSaveStatus('saved');
@@ -955,6 +1224,16 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     );
   };
 
+  // Permission helpers
+  const canEdit = () => userRole === 'OWNER' || userRole === 'EDITOR';
+  const canManageSharing = () => userRole === 'OWNER';
+  const canDelete = () => userRole === 'OWNER';
+  const canCheckItems = () => canEdit();
+
+  const handleLeaveSharedList = () => {
+    navigate('/checklists');
+  };
+
   const handleClone = async () => {
     if (!checklist) return;
 
@@ -999,6 +1278,17 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         if (!newChecklist.data) {
           throw new Error('Failed to clone checklist');
         }
+
+        // Create OWNER share for the new checklist
+        const userEmail = user.attributes?.email || user.signInDetails?.loginId || newAuthor;
+        await client.models.ChecklistShare.create({
+          checklistId: newChecklist.data.id,
+          userId: newAuthor!,
+          email: userEmail,
+          role: 'OWNER',
+          sharedBy: newAuthor!,
+          createdAt: new Date().toISOString(),
+        });
 
         // Clone sections and items (batched for performance)
         for (const section of clonedChecklist.sections) {
@@ -1058,29 +1348,6 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     }
   };
 
-  const handleShare = async (shouldShare: boolean) => {
-    if (!checklist || !user) return;
-
-    try {
-      await client.models.Checklist.update({
-        id: checklistId,
-        isPublic: shouldShare,
-      });
-
-      // Update local state
-      setChecklist({
-        ...checklist,
-        isPublic: shouldShare,
-      });
-
-      setShowShareDialog(false);
-      alert(shouldShare ? 'List is now shared as a public template!' : 'List is no longer shared');
-    } catch (error) {
-      console.error('Error updating share status:', error);
-      alert('Error updating share status. Please try again.');
-    }
-  };
-
   if (loading) {
     return (
       <div className="loading">
@@ -1108,53 +1375,47 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   return (
     <div className="checklist-view">
       <div className="view-header">
-        <div className="view-header-top">
-          <button onClick={onBack} className="back-button">
-            ← Back
-          </button>
-          <div className="view-actions">
-            {isOwner() ? (
-              <>
-                {saveStatus !== 'idle' && (
-                  <div className={`save-status save-status-${saveStatus}`}>
-                    {saveStatus === 'saving' && '💾 Saving...'}
-                    {saveStatus === 'saved' && '✓ Saved'}
-                    {saveStatus === 'error' && `⚠ Error: ${saveError}`}
-                  </div>
-                )}
-                <button onClick={() => setShowShareDialog(true)} className="share-button" title="Share as template">
-                  <span className="material-symbols-outlined">share</span>
-                </button>
-                <button onClick={handleDelete} className="delete-button" title="Delete">
-                  <span className="material-symbols-outlined">delete</span>
-                </button>
-              </>
-            ) : (
-              <button onClick={handleClone} className="clone-button" title="Copy this checklist to your lists">
-                Use this List
-              </button>
-            )}
-          </div>
-        </div>
         <div className="checklist-info">
-          {isOwner() ? (
-            editingChecklistTitle ? (
-              <input
-                type="text"
-                value={checklistTitle}
-                onChange={(e) => {
-                  setChecklistTitle(e.target.value);
-                  updateChecklistTitle(e.target.value);
-                }}
-                onBlur={() => setEditingChecklistTitle(false)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') setEditingChecklistTitle(false);
-                }}
-                className="checklist-title-input"
-                autoFocus
-              />
+          <div className="title-actions-row">
+            {canEdit() ? (
+              editingChecklistTitle ? (
+                <input
+                  type="text"
+                  value={checklistTitle}
+                  onChange={(e) => {
+                    setChecklistTitle(e.target.value);
+                    updateChecklistTitle(e.target.value);
+                  }}
+                  onBlur={() => setEditingChecklistTitle(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setEditingChecklistTitle(false);
+                  }}
+                  className="checklist-title-input"
+                  autoFocus
+                />
+              ) : (
+                <h1 onClick={() => setEditingChecklistTitle(true)} className="editable-text">
+                  {checklist.title}
+                  {checklist.isPublic && (
+                    <span
+                      className="privacy-icon"
+                      title="Shared as public template"
+                    >
+                      <span className="material-symbols-outlined">public</span>
+                    </span>
+                  )}
+                  {(checklist as any).isPrivatelyShared && (
+                    <span
+                      className="privacy-icon"
+                      title="Shared with others"
+                    >
+                      <span className="material-symbols-outlined">group</span>
+                    </span>
+                  )}
+                </h1>
+              )
             ) : (
-              <h1 onClick={() => setEditingChecklistTitle(true)} className="editable-text">
+              <h1>
                 {checklist.title}
                 {checklist.isPublic && (
                   <span
@@ -1164,23 +1425,82 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                     <span className="material-symbols-outlined">public</span>
                   </span>
                 )}
+                {(checklist as any).isPrivatelyShared && (
+                  <span
+                    className="privacy-icon"
+                    title="Shared with others"
+                  >
+                    <span className="material-symbols-outlined">group</span>
+                  </span>
+                )}
               </h1>
+            )}
+            <div className="view-actions">
+              {canEdit() && saveStatus !== 'idle' && (
+                <div className={`save-status save-status-${saveStatus}`}>
+                  {saveStatus === 'saving' && '💾 Saving...'}
+                  {saveStatus === 'saved' && '✓ Saved'}
+                  {saveStatus === 'error' && `⚠ Error: ${saveError}`}
+                </div>
+              )}
+              {canManageSharing() && (
+                <button onClick={() => setShowShareDialog(true)} className="share-button" title="Share this list">
+                  <span className="material-symbols-outlined">share</span>
+                </button>
+              )}
+              {canDelete() && (
+                <button onClick={handleDelete} className="delete-button" title="Delete">
+                  <span className="material-symbols-outlined">delete</span>
+                </button>
+              )}
+              {!canEdit() && !hasShare && checklist.isPublic && (
+                <button onClick={handleClone} className="clone-button" title="Copy this checklist to your lists">
+                  Use this List
+                </button>
+              )}
+            </div>
+          </div>
+          {userRole === 'VIEWER' && (
+            <div className="role-notice viewer-notice">
+              <span className="material-symbols-outlined">visibility</span>
+              You have view-only access to this list
+            </div>
+          )}
+          {userRole === 'EDITOR' && (
+            <div className="role-notice editor-notice">
+              <span className="material-symbols-outlined">edit</span>
+              You can edit this list but cannot manage sharing
+            </div>
+          )}
+          {canEdit() ? (
+            editingChecklistDescription ? (
+              <textarea
+                value={checklistDescription}
+                onChange={(e) => {
+                  setChecklistDescription(e.target.value);
+                  updateChecklistDescription(e.target.value);
+                }}
+                onBlur={() => setEditingChecklistDescription(false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setEditingChecklistDescription(false);
+                }}
+                className="checklist-description-input"
+                placeholder="Add a description..."
+                autoFocus
+                rows={2}
+              />
+            ) : (
+              <p
+                onClick={() => setEditingChecklistDescription(true)}
+                className={`checklist-description editable-text ${!checklistDescription ? 'placeholder' : ''}`}
+              >
+                {checklistDescription || 'Add a description...'}
+              </p>
             )
           ) : (
-            <h1>
-              {checklist.title}
-              {checklist.isPublic && (
-                <span
-                  className="privacy-icon"
-                  title="Shared as public template"
-                >
-                  <span className="material-symbols-outlined">public</span>
-                </span>
-              )}
-            </h1>
-          )}
-          {checklist.description && (
-            <p className="checklist-description">{checklist.description}</p>
+            checklist.description && (
+              <p className="checklist-description">{checklist.description}</p>
+            )
           )}
         </div>
       </div>
@@ -1274,10 +1594,10 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
             <div className="checklist-sections">
               {sectionsWithVisibility.map(({ section, visibleItems }) => {
                 // Hide sections with no visible items when actively filtering
-                // For owners not filtering, show all sections (so they can add items)
+                // For editors/owners not filtering, show all sections (so they can add items)
                 if (visibleItems.length === 0) {
                   if (isActivelyFiltering) return null;
-                  if (!isOwner()) return null;
+                  if (!canEdit()) return null;
                 }
 
           // Calculate section progress based on VISIBLE items
@@ -1288,7 +1608,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
           return (
           <div key={section.id} className="section">
-            {isOwner() ? (
+            {canEdit() ? (
               <div className="section-header-editable">
                 {editingSectionId === section.id ? (
                   <input
@@ -1385,20 +1705,20 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
               {visibleItems.map((item, itemIndex) => (
                 <div
                   key={item.id}
-                  className={`checklist-item ${progress[item.id] ? 'completed' : ''} ${!isOwner() ? 'disabled' : ''} ${isOwner() ? 'editable' : ''}`}
+                  className={`checklist-item ${progress[item.id] ? 'completed' : ''} ${!canEdit() ? 'disabled' : ''} ${canEdit() ? 'editable' : ''}`}
                 >
                   <span
                     className="item-checkbox"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (isOwner()) toggleItem(item.id);
+                      if (canCheckItems()) toggleItem(item.id);
                     }}
-                    style={{ cursor: isOwner() ? 'pointer' : 'default' }}
+                    style={{ cursor: canCheckItems() ? 'pointer' : 'not-allowed' }}
                   >
                     {progress[item.id] ? '☑' : '☐'}
                   </span>
 
-                  {isOwner() ? (
+                  {canEdit() ? (
                     editingItemId === item.id ? (
                       // EDIT MODE - Full editing interface
                       <div className="item-content-editable" onClick={(e) => e.stopPropagation()}>
@@ -1518,8 +1838,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                     </div>
                   )}
 
-                  {/* Item actions - owner only */}
-                  {isOwner() && (
+                  {/* Item actions - editors and owners */}
+                  {canEdit() && (
                     <div className="item-actions-inline" onClick={(e) => e.stopPropagation()}>
                       {editingItemId !== item.id && (
                         <button
@@ -1570,8 +1890,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 </div>
               ))}
 
-              {/* Add Item button - owner only */}
-              {isOwner() && (
+              {/* Add Item button - editors and owners */}
+              {canEdit() && (
                 <button
                   onClick={() => addItem(section.id)}
                   className="add-item-button-inline"
@@ -1584,8 +1904,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         );
               })}
 
-              {/* Add Section button - owner only */}
-              {isOwner() && (
+              {/* Add Section button - editors and owners */}
+              {canEdit() && (
                 <button
                   onClick={addSection}
                   className="add-section-button-inline"
@@ -1599,38 +1919,15 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
       })()}
 
       {showShareDialog && checklist && (
-        <div className="share-dialog-overlay" onClick={() => setShowShareDialog(false)}>
-          <div className="share-dialog-content" onClick={(e) => e.stopPropagation()}>
-            <button className="close-dialog" onClick={() => setShowShareDialog(false)}>✕</button>
-            <h2>Share as Template</h2>
-            {checklist.isPublic ? (
-              <>
-                <p>This list is currently shared as a public template. Others can view and copy it.</p>
-                <div className="dialog-actions">
-                  <button onClick={() => handleShare(false)} className="unshare-button">
-                    Remove from Shared Templates
-                  </button>
-                  <button onClick={() => setShowShareDialog(false)} className="cancel-dialog-button">
-                    Cancel
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <p>Do you want to share this list as a public template?</p>
-                <p className="dialog-note">Others will be able to view and copy it to their own lists, but they won't see your progress.</p>
-                <div className="dialog-actions">
-                  <button onClick={() => handleShare(true)} className="share-confirm-button">
-                    Share as Template
-                  </button>
-                  <button onClick={() => setShowShareDialog(false)} className="cancel-dialog-button">
-                    Cancel
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        <ShareDialog
+          checklistId={checklistId!}
+          checklistTitle={checklist.title}
+          isPublic={checklist.isPublic || false}
+          userRole={userRole}
+          user={user}
+          onClose={() => setShowShareDialog(false)}
+          onLeave={handleLeaveSharedList}
+        />
       )}
 
       {showCelebration && percentage === 100 && (
@@ -1642,6 +1939,16 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
             <p>You've completed this checklist!</p>
           </div>
         </div>
+      )}
+
+      {showScrollToTop && (
+        <button
+          className="scroll-to-top"
+          onClick={scrollToTop}
+          title="Scroll to top"
+        >
+          <span className="material-symbols-outlined">arrow_upward</span>
+        </button>
       )}
     </div>
   );
