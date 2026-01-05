@@ -58,7 +58,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
   };
 
   const generateLink = async (role: 'EDITOR' | 'VIEWER') => {
-    setGenerating(role);
+    setGenerating(role.toLowerCase() as 'editor' | 'viewer');
     try {
       const link = await ShareLinkManager.generateLink(checklistId, role, user);
       setShareLinks((prev) => ({
