@@ -348,12 +348,21 @@ body {
   opacity: 0.8;
 }
 
-.search-input {
+.search-container {
   flex: 1;
   min-width: 200px;
-  padding: 4px 0;
-  border: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   border-bottom: 1px solid #2b2b2b;
+  padding-bottom: 4px;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 100px;
+  padding: 0;
+  border: none;
   background: transparent;
   font-size: 18px;
   font-family: 'Patrick Hand', cursive;
@@ -369,6 +378,27 @@ body {
 .search-input::placeholder {
   color: #2b2b2b;
   opacity: 0.5;
+}
+
+.search-mode-select {
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-family: 'Patrick Hand', cursive;
+  color: #2b2b2b;
+  opacity: 0.6;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.search-mode-select:hover {
+  opacity: 1;
+}
+
+.search-mode-select:focus {
+  outline: none;
+  opacity: 1;
 }
 
 .sort-select {
@@ -1557,6 +1587,83 @@ body {
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* Remote Update Indicator */
+.remote-update-indicator {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: rgba(43, 43, 43, 0.9);
+  color: white;
+  padding: 12px 20px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Patrick Hand', cursive;
+  font-size: 16px;
+  z-index: 999;
+  animation: slideInRight 0.3s ease, fadeOut 0.3s ease 2.7s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.remote-update-indicator .material-symbols-outlined {
+  font-size: 20px;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Remote updated highlight animation */
+.remote-updated {
+  animation: highlightPulse 2s ease-in-out;
+}
+
+@keyframes highlightPulse {
+  0% {
+    background-color: transparent;
+  }
+  15% {
+    background-color: rgba(255, 235, 59, 0.4);
+    box-shadow: 0 0 0 4px rgba(255, 235, 59, 0.2);
+  }
+  50% {
+    background-color: rgba(255, 235, 59, 0.2);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+/* For checklist items specifically */
+.checklist-item.remote-updated {
+  border-radius: 4px;
+}
+
+/* For sections specifically */
+.section.remote-updated {
+  border-radius: 8px;
+  padding: 4px;
+  margin: -4px;
+}
+
 /* Leaderboard */
 .leaderboard {
   background: rgba(254, 253, 232, 0.8);
@@ -1892,7 +1999,7 @@ body {
   font-family: 'Patrick Hand', cursive;
   font-size: 16px;
   color: #2b2b2b;
-  opacity: 0.6;
+  opacity: 0.75;
 }
 
 .tag-input-inline:focus {

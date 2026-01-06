@@ -33,9 +33,14 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   const [showCelebration, setShowCelebration] = useState(false);
   const [hideCompleted, setHideCompleted] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<'items' | 'sections'>('items');
   const [showShareDialog, setShowShareDialog] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [showScrollToTop, setShowScrollToTop] = useState(false);
+  const [remoteUpdateIndicator, setRemoteUpdateIndicator] = useState<string | null>(null);
+  const [recentlyUpdatedItems, setRecentlyUpdatedItems] = useState<Set<string>>(new Set());
+  const [recentlyUpdatedSections, setRecentlyUpdatedSections] = useState<Set<string>>(new Set());
+  const [checklistJustUpdated, setChecklistJustUpdated] = useState(false);
 
   // User permissions
   const [userRole, setUserRole] = useState<'OWNER' | 'EDITOR' | 'VIEWER' | null>(null);
@@ -109,9 +114,47 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     fetchUserRole();
   }, [checklistId, user]); // Removed checklist dependency to prevent loop
 
+  // Show temporary indicator when remote changes arrive
+  const showRemoteUpdate = (message: string) => {
+    setRemoteUpdateIndicator(message);
+    setTimeout(() => setRemoteUpdateIndicator(null), 3000);
+  };
+
+  // Highlight a specific item that was updated
+  const highlightItem = (itemId: string) => {
+    setRecentlyUpdatedItems(prev => new Set(prev).add(itemId));
+    setTimeout(() => {
+      setRecentlyUpdatedItems(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(itemId);
+        return newSet;
+      });
+    }, 2000);
+  };
+
+  // Highlight a specific section that was updated
+  const highlightSection = (sectionId: string) => {
+    setRecentlyUpdatedSections(prev => new Set(prev).add(sectionId));
+    setTimeout(() => {
+      setRecentlyUpdatedSections(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(sectionId);
+        return newSet;
+      });
+    }, 2000);
+  };
+
+  // Highlight the checklist title
+  const highlightChecklist = () => {
+    setChecklistJustUpdated(true);
+    setTimeout(() => setChecklistJustUpdated(false), 2000);
+  };
+
   // Real-time sync with granular updates (no page reload)
   const realtimeCallbacks = useMemo(() => ({
     onItemCreate: (item: any) => {
+      showRemoteUpdate('Item added');
+      highlightItem(item.id);
       setChecklist(prev => {
         if (!prev) return prev;
         return {
@@ -140,6 +183,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     },
 
     onItemUpdate: (item: any) => {
+      showRemoteUpdate('Item updated');
+      highlightItem(item.id);
       setChecklist(prev => {
         if (!prev) return prev;
         return {
@@ -172,6 +217,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     },
 
     onItemDelete: (itemId: string) => {
+      showRemoteUpdate('Item deleted');
+      // Don't highlight deleted items, they're gone
       setChecklist(prev => {
         if (!prev) return prev;
         return {
@@ -192,6 +239,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     },
 
     onSectionCreate: (section: any) => {
+      showRemoteUpdate('Section added');
+      highlightSection(section.id);
       setChecklist(prev => {
         if (!prev) return prev;
         const newSection = {
@@ -208,6 +257,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     },
 
     onSectionUpdate: (section: any) => {
+      showRemoteUpdate('Section updated');
+      highlightSection(section.id);
       setChecklist(prev => {
         if (!prev) return prev;
         return {
@@ -227,6 +278,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     },
 
     onSectionDelete: (sectionId: string) => {
+      showRemoteUpdate('Section deleted');
+      // Don't highlight deleted sections, they're gone
       setChecklist(prev => {
         if (!prev) return prev;
         return {
@@ -237,6 +290,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     },
 
     onChecklistUpdate: (updatedChecklist: any) => {
+      showRemoteUpdate('List updated');
+      highlightChecklist();
       setChecklist(prev => {
         if (!prev) return prev;
         return {
@@ -1374,6 +1429,12 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
   return (
     <div className="checklist-view">
+      {remoteUpdateIndicator && (
+        <div className="remote-update-indicator">
+          <span className="material-symbols-outlined">person</span>
+          {remoteUpdateIndicator}
+        </div>
+      )}
       <div className="view-header">
         <div className="checklist-info">
           <div className="title-actions-row">
@@ -1394,7 +1455,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                   autoFocus
                 />
               ) : (
-                <h1 onClick={() => setEditingChecklistTitle(true)} className="editable-text">
+                <h1 onClick={() => setEditingChecklistTitle(true)} className={`editable-text ${checklistJustUpdated ? 'remote-updated' : ''}`}>
                   {checklist.title}
                   {checklist.isPublic && (
                     <span
@@ -1415,7 +1476,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 </h1>
               )
             ) : (
-              <h1>
+              <h1 className={checklistJustUpdated ? 'remote-updated' : ''}>
                 {checklist.title}
                 {checklist.isPublic && (
                   <span
@@ -1527,13 +1588,24 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
             </div>
           )}
           <div className="progress-controls">
-            <input
-              type="text"
-              placeholder="Search items..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="search-input"
-            />
+            <div className="search-container">
+              <input
+                type="text"
+                placeholder={searchMode === 'items' ? 'Search items...' : 'Search sections...'}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="search-input"
+              />
+              <select
+                value={searchMode}
+                onChange={(e) => setSearchMode(e.target.value as 'items' | 'sections')}
+                className="search-mode-select"
+                title="Search mode"
+              >
+                <option value="items">Items</option>
+                <option value="sections">Sections</option>
+              </select>
+            </div>
             <label className="hide-completed-label">
               <input
                 type="checkbox"
@@ -1552,6 +1624,13 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
         // Calculate visible items for each section
         const sectionsWithVisibility = checklist.sections.map((section) => {
+          // When searching by section name, check if section matches
+          let sectionMatches = false;
+          if (searchQuery && searchMode === 'sections') {
+            const query = searchQuery.toLowerCase();
+            sectionMatches = section.title.toLowerCase().includes(query);
+          }
+
           const visibleItems = section.items.filter(item => {
             // Filter by completion status
             if (hideCompleted && progress[item.id]) return false;
@@ -1565,11 +1644,17 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
             // Filter by search query
             if (searchQuery) {
-              const query = searchQuery.toLowerCase();
-              return (
-                item.title.toLowerCase().includes(query) ||
-                item.description?.toLowerCase().includes(query)
-              );
+              if (searchMode === 'sections') {
+                // In section mode, show all items if section matches
+                return sectionMatches;
+              } else {
+                // In items mode, search item title/description
+                const query = searchQuery.toLowerCase();
+                return (
+                  item.title.toLowerCase().includes(query) ||
+                  item.description?.toLowerCase().includes(query)
+                );
+              }
             }
 
             return true;
@@ -1607,7 +1692,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           const allVisibleItemsCompleted = visibleItems.length > 0 && visibleItems.every(item => progress[item.id] === true);
 
           return (
-          <div key={section.id} className="section">
+          <div key={section.id} className={`section ${recentlyUpdatedSections.has(section.id) ? 'remote-updated' : ''}`}>
             {canEdit() ? (
               <div className="section-header-editable">
                 {editingSectionId === section.id ? (
@@ -1705,7 +1790,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
               {visibleItems.map((item, itemIndex) => (
                 <div
                   key={item.id}
-                  className={`checklist-item ${progress[item.id] ? 'completed' : ''} ${!canEdit() ? 'disabled' : ''} ${canEdit() ? 'editable' : ''}`}
+                  className={`checklist-item ${progress[item.id] ? 'completed' : ''} ${!canEdit() ? 'disabled' : ''} ${canEdit() ? 'editable' : ''} ${recentlyUpdatedItems.has(item.id) ? 'remote-updated' : ''}`}
                 >
                   <span
                     className="item-checkbox"
@@ -1771,7 +1856,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                               onBlur={() => setTimeout(() =>
                                 setShowTagSuggestions({ ...showTagSuggestions, [item.id]: false }), 200
                               )}
-                              placeholder="Add tags..."
+                              placeholder="Add tags (press enter to save)..."
                               className="tag-input-inline"
                             />
                             {showTagSuggestions[item.id] && getTagSuggestions(item.id).length > 0 && (
