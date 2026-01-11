@@ -1,9 +1,24 @@
-import { generateClient } from 'aws-amplify/data';
-import type { Schema } from '../../amplify/data/resource';
+import { fetchAuthSession } from 'aws-amplify/auth';
+import { Schema } from '../../amplify/data/resource';
+import { generateClient } from 'aws-amplify/api';
 
-const client = generateClient<Schema>();
+const getClient = async () => {
+  const session = await fetchAuthSession();
+  const token = session.tokens?.idToken?.toString();
+  
+  if (!token) {
+    throw new Error('No authentication token available');
+  }
+
+  return generateClient<Schema>({
+    authMode: 'lambda',
+    authToken: `Token: ${token}`,
+  });
+}
+
 
 export class ShareLinkManager {
+
   static generateShareToken(): string {
     // Crypto-secure 32-byte random token
     const array = new Uint8Array(32);
@@ -22,6 +37,8 @@ export class ShareLinkManager {
   ): Promise<string> {
     const token = this.generateShareToken();
 
+    const client = await getClient();
+
     // Create a share record with the token
     await client.models.ChecklistShare.create({
       checklistId,
@@ -38,6 +55,8 @@ export class ShareLinkManager {
 
   static async acceptShareLink(token: string, user: any): Promise<string> {
     console.log('Accepting share link with token:', token, 'for user:', user.username || user.userId);
+
+    const client = await getClient();
 
     // Find share by token
     const shares = await client.models.ChecklistShare.list({
@@ -87,6 +106,7 @@ export class ShareLinkManager {
     user: any
   ): Promise<'OWNER' | 'EDITOR' | 'VIEWER' | null> {
     try {
+      const client = await getClient();
       const share = await client.models.ChecklistShare.get({
         checklistId,
         userId: user.username || user.userId,
@@ -101,6 +121,7 @@ export class ShareLinkManager {
 
   static async getChecklistShares(checklistId: string) {
     try {
+      const client = await getClient();
       const result = await client.models.ChecklistShare.list({
         filter: { checklistId: { eq: checklistId } },
       });
@@ -114,6 +135,7 @@ export class ShareLinkManager {
   }
 
   static async removeShare(checklistId: string, userId: string) {
+    const client = await getClient();
     await client.models.ChecklistShare.delete({
       checklistId,
       userId,
@@ -125,6 +147,7 @@ export class ShareLinkManager {
   }
 
   static async togglePublicStatus(checklistId: string, isPublic: boolean) {
+    const client = await getClient();
     await client.models.Checklist.update({
       id: checklistId,
       isPublic: isPublic,

@@ -1,8 +1,4 @@
 import { useEffect } from 'react';
-import { generateClient } from 'aws-amplify/data';
-import type { Schema } from '../../amplify/data/resource';
-
-const client = generateClient<Schema>();
 
 // Track recent mutations to ignore our own subscription events
 const recentMutations = new Set<string>();
@@ -33,16 +29,17 @@ interface RealtimeCallbacks {
 
 export function useRealtimeSync(
   checklistId: string | undefined,
-  callbacks: RealtimeCallbacks
+  callbacks: RealtimeCallbacks,
+  client: any // Authenticated Amplify client
 ) {
   useEffect(() => {
-    if (!checklistId) return;
+    if (!checklistId || !client) return;
 
     console.log('Setting up real-time subscriptions for checklist:', checklistId);
 
     // Subscribe to item changes
     const itemCreateSub = client.models.ChecklistItem.onCreate().subscribe({
-      next: (data) => {
+      next: (data: any) => {
         if (!data || !data.id) return;
 
         // Ignore if this was our own mutation
@@ -54,11 +51,11 @@ export function useRealtimeSync(
         console.log('Remote item created:', data.id);
         callbacks.onItemCreate?.(data);
       },
-      error: (err) => console.error('Item create subscription error:', err),
+      error: (err: any) => console.error('Item create subscription error:', err),
     });
 
     const itemUpdateSub = client.models.ChecklistItem.onUpdate().subscribe({
-      next: (data) => {
+      next: (data: any) => {
         if (!data || !data.id) return;
 
         if (wasRecentMutation('item', data.id)) {
@@ -69,11 +66,11 @@ export function useRealtimeSync(
         console.log('Remote item updated:', data.id);
         callbacks.onItemUpdate?.(data);
       },
-      error: (err) => console.error('Item update subscription error:', err),
+      error: (err: any) => console.error('Item update subscription error:', err),
     });
 
     const itemDeleteSub = client.models.ChecklistItem.onDelete().subscribe({
-      next: (data) => {
+      next: (data: any) => {
         if (!data || !data.id) return;
 
         if (wasRecentMutation('item', data.id)) {
@@ -84,14 +81,14 @@ export function useRealtimeSync(
         console.log('Remote item deleted:', data.id);
         callbacks.onItemDelete?.(data.id);
       },
-      error: (err) => console.error('Item delete subscription error:', err),
+      error: (err: any) => console.error('Item delete subscription error:', err),
     });
 
     // Subscribe to section changes
     const sectionCreateSub = client.models.ChecklistSection.onCreate({
       filter: { checklistId: { eq: checklistId } },
     }).subscribe({
-      next: (data) => {
+      next: (data: any) => {
         if (!data || !data.id) return;
 
         if (wasRecentMutation('section', data.id)) {
@@ -102,13 +99,13 @@ export function useRealtimeSync(
         console.log('Remote section created:', data.id);
         callbacks.onSectionCreate?.(data);
       },
-      error: (err) => console.error('Section create subscription error:', err),
+      error: (err: any) => console.error('Section create subscription error:', err),
     });
 
     const sectionUpdateSub = client.models.ChecklistSection.onUpdate({
       filter: { checklistId: { eq: checklistId } },
     }).subscribe({
-      next: (data) => {
+      next: (data: any) => {
         if (!data || !data.id) return;
 
         if (wasRecentMutation('section', data.id)) {
@@ -119,13 +116,13 @@ export function useRealtimeSync(
         console.log('Remote section updated:', data.id);
         callbacks.onSectionUpdate?.(data);
       },
-      error: (err) => console.error('Section update subscription error:', err),
+      error: (err: any) => console.error('Section update subscription error:', err),
     });
 
     const sectionDeleteSub = client.models.ChecklistSection.onDelete({
       filter: { checklistId: { eq: checklistId } },
     }).subscribe({
-      next: (data) => {
+      next: (data: any) => {
         if (!data || !data.id) return;
 
         if (wasRecentMutation('section', data.id)) {
@@ -136,14 +133,14 @@ export function useRealtimeSync(
         console.log('Remote section deleted:', data.id);
         callbacks.onSectionDelete?.(data.id);
       },
-      error: (err) => console.error('Section delete subscription error:', err),
+      error: (err: any) => console.error('Section delete subscription error:', err),
     });
 
     // Subscribe to checklist metadata changes
     const checklistUpdateSub = client.models.Checklist.onUpdate({
       filter: { id: { eq: checklistId } },
     }).subscribe({
-      next: (data) => {
+      next: (data: any) => {
         if (!data || !data.id) return;
 
         if (wasRecentMutation('checklist', data.id)) {
@@ -154,7 +151,7 @@ export function useRealtimeSync(
         console.log('Remote checklist updated:', data.id);
         callbacks.onChecklistUpdate?.(data);
       },
-      error: (err) => console.error('Checklist update subscription error:', err),
+      error: (err: any) => console.error('Checklist update subscription error:', err),
     });
 
     // Cleanup on unmount
@@ -168,5 +165,5 @@ export function useRealtimeSync(
       sectionDeleteSub.unsubscribe();
       checklistUpdateSub.unsubscribe();
     };
-  }, [checklistId, callbacks]);
+  }, [checklistId, callbacks, client]);
 }

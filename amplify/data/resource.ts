@@ -1,4 +1,4 @@
-import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
+import { type ClientSchema, a, defineData, defineFunction } from "@aws-amplify/backend";
 
 const schema = a.schema({
   Checklist: a
@@ -17,8 +17,7 @@ const schema = a.schema({
       shares: a.hasMany('ChecklistShare', 'checklistId'),
     })
     .authorization((allow) => [
-      allow.authenticated(),
-      allow.publicApiKey().to(['read']),
+      allow.custom(),
     ]),
 
   ChecklistSection: a
@@ -30,8 +29,7 @@ const schema = a.schema({
       items: a.hasMany('ChecklistItem', 'sectionId'),
     })
     .authorization((allow) => [
-      allow.authenticated(),
-      allow.publicApiKey().to(['read']),
+      allow.custom(),
     ]),
 
   ChecklistItem: a
@@ -45,8 +43,7 @@ const schema = a.schema({
       section: a.belongsTo('ChecklistSection', 'sectionId'),
     })
     .authorization((allow) => [
-      allow.authenticated(),
-      allow.publicApiKey().to(['read']),
+      allow.custom(),
     ]),
 
   ChecklistShare: a
@@ -62,19 +59,29 @@ const schema = a.schema({
       expiresAt: a.datetime(), // Optional expiration
     })
     .identifier(['checklistId', 'userId'])
+    .secondaryIndexes((index) => [
+      index('userId'), // GSI to query shares by userId
+    ])
     .authorization((allow) => [
-      allow.authenticated(),
+      // Use custom Lambda authorization for consistency
+      allow.custom(),
     ]),
 });
 
 export type Schema = ClientSchema<typeof schema>;
 
+export const authorizerFunction = defineFunction({
+  entry: "./custom-authorizer.ts",
+  resourceGroupName: "data",
+});
+
 export const data = defineData({
   schema,
   authorizationModes: {
-    defaultAuthorizationMode: "userPool",
-    apiKeyAuthorizationMode: {
-      expiresInDays: 30,
+    defaultAuthorizationMode: "lambda",
+    lambdaAuthorizationMode: {
+      function: authorizerFunction,
+      timeToLiveInSeconds: 300,
     },
   },
 });

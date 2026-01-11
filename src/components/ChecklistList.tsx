@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { LocalStorageManager } from '../utils/localStorage';
-import { generateClient } from 'aws-amplify/data';
-import type { Schema } from '../../amplify/data/resource';
-
-const client = generateClient<Schema>();
+import { fetchAuthSession } from 'aws-amplify/auth';
+import { Schema } from '../../amplify/data/resource';
+import { generateClient } from 'aws-amplify/api';
 
 interface ChecklistListProps {
   checklists: any[];
@@ -22,6 +21,30 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'updated' | 'alphabetical' | 'trending' | 'mostUsed'>('updated');
   const [userShares, setUserShares] = useState<any[]>([]);
+  const [client, setClient] = useState<any>(null);
+
+  useEffect(() => {
+    if (!user) {
+      setClient(null);
+      return;
+    }
+
+    const initClient = async () => {
+      const session = await fetchAuthSession();
+      const token = session.tokens?.idToken?.toString();
+    
+      if (!token) {
+        throw new Error('No authentication token available');
+      }
+    
+      setClient(generateClient<Schema>({
+        authMode: 'lambda',
+        authToken: `Token: ${token}`,
+      }));
+    };
+
+    initClient();
+  }, [user]);
 
   // Load user shares
   useEffect(() => {
@@ -32,18 +55,18 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
       }
 
       try {
-        const result = await client.models.ChecklistShare.list({
-          filter: { userId: { eq: user.username || user.userId } },
-        });
+        const userId = user.username || user.userId;
+        const result = await (client.models.ChecklistShare as any).listChecklistShareByUserId({ userId });
         setUserShares(result.data || []);
       } catch (error) {
         console.error('Error loading user shares:', error);
         setUserShares([]);
       }
     };
+    if (!client) return;
 
     loadShares();
-  }, [user]);
+  }, [user, client]);
 
   // Reset sort when filter changes
   useEffect(() => {
@@ -113,7 +136,7 @@ export const ChecklistList: React.FC<ChecklistListProps> = ({
     }
 
     try {
-      if (user) {
+      if (user && client) {
         // Delete from Amplify - fetch all sections with pagination
         let allSections: any[] = [];
         let sectionToken: string | null | undefined = undefined;

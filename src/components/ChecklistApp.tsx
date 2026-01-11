@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { generateClient } from 'aws-amplify/data';
-import type { Schema } from '../../amplify/data/resource';
 import { ChecklistList } from './ChecklistList';
 import { ChecklistView } from './ChecklistView';
 import { AcceptSharePage } from './AcceptSharePage';
 import { Footer } from './Footer';
 import { LocalStorageManager } from '../utils/localStorage';
 import { Routes, Route, useNavigate } from 'react-router-dom';
-
-const client = generateClient<Schema>();
+import { fetchAuthSession } from 'aws-amplify/auth';
+import { Schema } from '../../amplify/data/resource';
+import { generateClient } from 'aws-amplify/api';
 
 interface ChecklistAppProps {
   user: any;
@@ -18,25 +17,96 @@ interface ChecklistAppProps {
 export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => {
   const [checklists, setChecklists] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [client, setClient] = useState<any>(null);
+
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (!user) {
+      setClient(null);
+      return;
+    }
+
+    const initClient = async () => {
+      const session = await fetchAuthSession();
+      const token = session.tokens?.idToken?.toString();
+    
+      if (!token) {
+        throw new Error('No authentication token available');
+      }
+    
+      setClient(generateClient<Schema>({
+        authMode: 'lambda',
+        authToken: `Token: ${token}`,
+      }));
+    };
+
+    initClient();
+  }, [user]);
+
+  useEffect(() => {
     if (user) {
+      if (!client) return; // Wait for client to be initialized
       fetchChecklists();
     } else {
       loadLocalChecklists();
     }
-  }, [user]);
+  }, [client, user]);
+
 
   const fetchChecklists = async () => {
+    if (!client || !user) return; // Safety check
+
     setLoading(true);
     try {
-      const result = await client.models.Checklist.list({
-        authMode: user ? 'userPool' : 'apiKey',
+      const userId = user.username || user.userId;
+
+      // Fetch owned checklists
+      const ownedResult = await client.models.Checklist.list({
+        filter: { author: { eq: userId } }
       });
 
-      // No need to load sections - just use checklist data directly
-      setChecklists(result.data || []);
+      // Fetch shared checklists via ChecklistShare GSI
+      const sharesResult = await (client.models.ChecklistShare as any).listChecklistShareByUserId({ userId });
+      console.log('Shares found:', sharesResult.data);
+
+      // Fetch public checklists (templates)
+      const publicResult = await client.models.Checklist.list({
+        filter: { isPublic: { eq: true } }
+      });
+
+      // Get full checklist data for shared checklists
+      const sharedChecklistPromises = (sharesResult.data || []).map(async (share: any) => {
+        console.log('Fetching checklist for share:', share.checklistId);
+        const checklistResult = await client.models.Checklist.get({ id: share.checklistId });
+        console.log('Got checklist:', checklistResult.data);
+        return checklistResult.data;
+      });
+      const sharedChecklists = (await Promise.all(sharedChecklistPromises)).filter(Boolean);
+      console.log('Shared checklists:', sharedChecklists);
+
+      // Combine all checklists (owned, shared, public) - avoid duplicates
+      const allChecklistsMap = new Map();
+
+      // Add owned checklists
+      (ownedResult.data || []).forEach((c: any) => allChecklistsMap.set(c.id, c));
+
+      // Add shared checklists
+      sharedChecklists.forEach((c: any) => {
+        if (c && !allChecklistsMap.has(c.id)) {
+          allChecklistsMap.set(c.id, c);
+        }
+      });
+
+      // Add public checklists
+      (publicResult.data || []).forEach((c: any) => {
+        if (!allChecklistsMap.has(c.id)) {
+          allChecklistsMap.set(c.id, c);
+        }
+      });
+
+      console.log('Owned:', ownedResult.data?.length, 'Shared:', sharedChecklists.length, 'Public:', publicResult.data?.length);
+      setChecklists(Array.from(allChecklistsMap.values()));
     } catch (error) {
       console.error('Error fetching checklists:', error);
     } finally {
@@ -55,7 +125,7 @@ export const ChecklistApp: React.FC<ChecklistAppProps> = ({ user, signOut }) => 
     const newChecklistId = LocalStorageManager.generateId();
     const newSectionId = LocalStorageManager.generateId();
 
-    if (user) {
+    if (user && client) {
       // Create blank checklist in Amplify with client-generated IDs
       try {
         const authorId = user.username || user.userId;

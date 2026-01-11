@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { LocalStorageManager, LocalChecklist } from '../utils/localStorage';
-import { generateClient } from 'aws-amplify/data';
-import type { Schema } from '../../amplify/data/resource';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useRealtimeSync, trackMutation } from '../hooks/useRealtimeSync';
 import { ShareLinkManager } from '../utils/shareLinks';
 import { ShareDialog } from './ShareDialog';
+import { fetchAuthSession } from 'aws-amplify/auth';
+import { Schema } from '../../amplify/data/resource';
+import { generateClient } from 'aws-amplify/api';
 
-const client = generateClient<Schema>();
 
 interface ChecklistViewProps {
   onBack: () => void;
@@ -68,10 +68,34 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   // Debounce timers and rollback
   const debounceTimers = useRef<Record<string, NodeJS.Timeout>>({});
   const [previousState, setPreviousState] = useState<LocalChecklist | null>(null);
+  const [client, setClient] = useState<any>(null);
+  
+  useEffect(() => {
+    if (!user) {
+      setClient(null);
+      return;
+    }
+
+    const initClient = async () => {
+      const session = await fetchAuthSession();
+      const token = session.tokens?.idToken?.toString();
+    
+      if (!token) {
+        throw new Error('No authentication token available');
+      }
+    
+      setClient(generateClient<Schema>({
+        authMode: 'lambda',
+        authToken: `Token: ${token}`,
+      }));
+    };
+
+    initClient();
+  }, [user]);
 
   useEffect(() => {
     loadChecklist();
-  }, [checklistId]);
+  }, [checklistId, client]);
 
   // Fetch user role for permissions (only when checklistId or user changes, NOT when checklist changes)
   useEffect(() => {
@@ -88,6 +112,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         if (role) {
           setUserRole(role);
         } else {
+          if (!client) return;
           // No share found - check if user is the original author as fallback
           console.log('No share found, checking if user is author');
           const checklistResult = await client.models.Checklist.get({ id: checklistId });
@@ -312,7 +337,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     },
   }), []);
 
-  useRealtimeSync(checklistId, realtimeCallbacks);
+  useRealtimeSync(checklistId, realtimeCallbacks, client);
 
   // Cleanup debounce timers on unmount
   useEffect(() => {
@@ -338,7 +363,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   const loadChecklist = async () => {
     setLoading(true);
     try {
-      if (user) {
+      if (user && client) {
         // Load from Amplify
         const result = await client.models.Checklist.get({ id: checklistId });
         if (result.data) {
@@ -419,7 +444,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
             client.models.Checklist.update({
               id: checklistId,
               lastUsedAt: new Date().toISOString(),
-            }).catch(error => {
+            }).catch((error: any) => {
               console.error('Error updating lastUsedAt:', error);
               // Don't fail the whole operation if this fails
             });
@@ -495,7 +520,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
       }
     }
 
-    if (user) {
+    if (user && client) {
       // Update item's completed field in Amplify
       try {
         trackMutation('item', itemId);
@@ -543,7 +568,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
       setShowCelebration(true);
     }
 
-    if (user) {
+    if (user && client) {
       // Batch update all items in Amplify using Promise.all
       try {
         await Promise.all(
@@ -618,7 +643,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     }
 
     try {
-      if (user) {
+      if (user && client) {
         // Delete from Amplify - fetch all sections with pagination
         let allSections: any[] = [];
         let sectionToken: string | null | undefined = undefined;
@@ -714,7 +739,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
     // Debounced save
     debouncedSave('checklist-title', async () => {
-      if (user) {
+      if (user && client) {
         trackMutation('checklist', checklistId);
         await client.models.Checklist.update({
           id: checklistId,
@@ -737,7 +762,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
     // Debounced save
     debouncedSave('checklist-description', async () => {
-      if (user) {
+      if (user && client) {
         trackMutation('checklist', checklistId);
         await client.models.Checklist.update({
           id: checklistId,
@@ -772,7 +797,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     // Immediate save
     setSaveStatus('saving');
     try {
-      if (user) {
+      if (user && client) {
         // Use our generated ID so it matches what's in the UI
         trackMutation('section', newSection.id);
         await client.models.ChecklistSection.create({
@@ -815,7 +840,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
     // Debounced save
     debouncedSave(`section-${sectionId}`, async () => {
-      if (user) {
+      if (user && client) {
         trackMutation('section', sectionId);
         await client.models.ChecklistSection.update({
           id: sectionId,
@@ -858,7 +883,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     // Immediate save
     setSaveStatus('saving');
     try {
-      if (user) {
+      if (user && client) {
         // Delete all items first with pagination, then section
         let allItems: any[] = [];
         let nextToken: string | null | undefined = undefined;
@@ -925,7 +950,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     // Immediate save
     setSaveStatus('saving');
     try {
-      if (user) {
+      if (user && client) {
         // Use our generated ID so it matches what's in the UI
         trackMutation('item', newItem.id);
         await client.models.ChecklistItem.create({
@@ -989,7 +1014,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
     // Debounced save
     debouncedSave(`item-${itemId}`, async () => {
-      if (user) {
+      if (user && client) {
         // CRITICAL: Preserve completed field!
         trackMutation('item', itemId);
         await client.models.ChecklistItem.update({
@@ -1033,7 +1058,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     // Immediate save
     setSaveStatus('saving');
     try {
-      if (user) {
+      if (user && client) {
         trackMutation('item', itemId);
         await client.models.ChecklistItem.delete({ id: itemId });
       } else{
@@ -1081,7 +1106,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     // Immediate save (structural change)
     setSaveStatus('saving');
     try {
-      if (user) {
+      if (user && client) {
         // Batch update order for affected items
         await Promise.all(
           updatedItems.slice(itemIndex - 1, itemIndex + 1).map(item =>
@@ -1136,7 +1161,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     // Immediate save (structural change)
     setSaveStatus('saving');
     try {
-      if (user) {
+      if (user && client) {
         // Batch update order for affected items
         await Promise.all(
           updatedItems.slice(itemIndex, itemIndex + 2).map(item =>
@@ -1293,7 +1318,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     if (!checklist) return;
 
     // Show loading state
-    setLoading(true);
+    // setLoading(true);
 
     try {
       // Clone checklist with NEW IDs for everything and current user as author
@@ -1319,7 +1344,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         }))
       };
 
-      if (user) {
+      if (user && client) {
         // Save to Amplify with current user as author
         const newChecklist = await client.models.Checklist.create({
           id: clonedChecklist.id, // Use our generated ID
